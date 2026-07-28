@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="할 일">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#F2F2F7">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000000">
+<title>할 일 목록</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+<style>
+  :root{
+    --bg:#F2F2F7; --card:#FFFFFF; --text:#1C1C1E; --text2:#8E8E93;
+    --sep:rgba(60,60,67,.12); --accent:#007AFF; --danger:#FF3B30;
+    --press:rgba(0,0,0,.05); --dim:rgba(0,0,0,.4); --input:#E9E9EE;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#000000; --card:#1C1C1E; --text:#FFFFFF; --text2:#98989E;
+      --sep:rgba(84,84,88,.5); --press:rgba(255,255,255,.08);
+      --dim:rgba(0,0,0,.55); --input:#2C2C2E;
+    }
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
+  html,body{height:100%;overscroll-behavior:none;}
+  body{
+    position:fixed; inset:0; overflow:hidden;
+    background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Malgun Gothic",sans-serif;
+    touch-action:manipulation;
+    -webkit-user-select:none; user-select:none;
+  }
+  input,textarea{-webkit-user-select:text;user-select:text;}
+  button{
+    font-family:inherit; background:none; border:none; color:var(--accent);
+    font-size:17px; cursor:pointer; touch-action:manipulation; padding:0;
+  }
+  button:active{opacity:.5;}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px;}
+
+  /* ===== 화면 골격 ===== */
+  #app{position:absolute;inset:0;display:flex;flex-direction:column;}
+  .screen{
+    flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+    overscroll-behavior:contain; overflow-x:hidden;
+    padding:0 16px calc(40px + env(safe-area-inset-bottom));
+  }
+  .navbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:calc(10px + env(safe-area-inset-top)) 16px 6px;
+    min-height:44px; flex-shrink:0;
+  }
+  .navbar .side{min-width:64px;display:flex;align-items:center;}
+  .navbar .side.right{justify-content:flex-end;}
+  .back-btn{display:flex;align-items:center;gap:2px;font-size:17px;}
+  .back-btn .chev{font-size:24px;line-height:1;margin-top:-2px;}
+  .large-title{font-size:33px;font-weight:800;letter-spacing:-.4px;padding:4px 0 12px;}
+
+  /* ===== 요약 카드 ===== */
+  .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:22px;}
+  .stat-card{background:var(--card);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:6px;}
+  .stat-top{display:flex;justify-content:space-between;align-items:flex-start;}
+  .stat-num{font-size:26px;font-weight:800;}
+  .stat-label{font-size:14px;font-weight:600;color:var(--text2);}
+  .badge{
+    width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    color:#fff;font-size:15px;flex-shrink:0;
+  }
+
+  .section-title{font-size:20px;font-weight:800;margin:4px 2px 8px;}
+
+  /* ===== 목록/할일 공통 카드 ===== */
+  .group{background:var(--card);border-radius:12px;overflow:hidden;margin-bottom:14px;}
+  .row{
+    display:flex;align-items:center;gap:12px;padding:11px 14px;
+    position:relative; touch-action:manipulation;
+  }
+  .row + .row::before{
+    content:""; position:absolute; top:0; left:56px; right:0; height:1px; background:var(--sep);
+  }
+  .row.pressable:active{background:var(--press);}
+  .row-main{flex:1;min-width:0;}
+  .row-title{font-size:17px;line-height:1.35;word-break:break-word;}
+  .row-sub{font-size:13px;color:var(--text2);margin-top:2px;}
+  .row-count{font-size:17px;color:var(--text2);}
+  .chevron{color:var(--text2);font-size:17px;opacity:.6;}
+  .list-dot{
+    width:32px;height:32px;border-radius:50%;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;font-size:16px;
+  }
+  .minus-btn{
+    width:24px;height:24px;border-radius:50%;background:var(--danger);color:#fff;
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;
+    font-size:18px;font-weight:700;line-height:1;
+  }
+  .del-btn{
+    background:var(--danger);color:#fff;font-size:14px;font-weight:600;
+    border-radius:8px;padding:7px 12px;flex-shrink:0;
+  }
+
+  .add-row{display:flex;align-items:center;gap:10px;padding:13px 4px;color:var(--accent);font-weight:600;font-size:17px;}
+  .add-row .plus{
+    width:26px;height:26px;border-radius:50%;background:var(--accent);color:#fff;
+    display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;
+  }
+
+  /* ===== 체크 원 ===== */
+  .check{
+    width:26px;height:26px;border-radius:50%;border:1.8px solid var(--text2);
+    flex-shrink:0;display:flex;align-items:center;justify-content:center;
+    font-size:14px;color:#fff;background:transparent;
+  }
+  .check.done{border-color:transparent;}
+
+  .todo-done .row-title{color:var(--text2);}
+  .memo-line{
+    font-size:14px;color:var(--text2);margin-top:5px;padding:7px 10px;
+    background:var(--bg);border-radius:8px;line-height:1.4;word-break:break-word;
+  }
+
+  .completed-header{
+    display:flex;justify-content:space-between;align-items:center;
+    margin:20px 2px 8px;
+  }
+  .completed-header .t{font-size:15px;font-weight:700;color:var(--text2);}
+
+  .empty{
+    text-align:center;color:var(--text2);font-size:15px;line-height:1.6;
+    padding:44px 20px;
+  }
+  .empty .big{font-size:40px;margin-bottom:10px;}
+
+  /* ===== 새 할 일 입력 ===== */
+  .new-todo-bar{display:flex;gap:8px;align-items:center;padding:10px 12px;background:var(--card);border-radius:12px;margin-bottom:14px;}
+  .new-todo-bar input{
+    flex:1;border:none;background:transparent;font-size:17px;color:var(--text);outline:none;min-width:0;
+  }
+  .new-todo-bar .go{font-weight:700;font-size:16px;flex-shrink:0;}
+
+  /* ===== 시트(모달) ===== */
+  .backdrop{
+    position:fixed;inset:0;background:var(--dim);z-index:50;
+    display:flex;align-items:flex-end;justify-content:center;
+    animation:fadeIn .18s ease;
+  }
+  .sheet{
+    background:var(--card);width:100%;max-width:560px;
+    border-radius:16px 16px 0 0;
+    padding:18px 18px calc(24px + env(safe-area-inset-bottom));
+    animation:slideUp .22s cubic-bezier(.3,1,.4,1);
+    max-height:82vh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+  }
+  .sheet-grab{width:38px;height:5px;border-radius:3px;background:var(--sep);margin:0 auto 14px;}
+  .sheet h2{font-size:19px;font-weight:800;margin-bottom:4px;}
+  .sheet .desc{font-size:14px;color:var(--text2);margin-bottom:14px;line-height:1.5;word-break:break-word;}
+  .sheet label{display:block;font-size:13px;font-weight:700;color:var(--text2);margin:14px 0 6px;}
+  .sheet input[type=text],.sheet textarea{
+    width:100%;font-size:17px;color:var(--text);background:var(--input);
+    border:none;border-radius:10px;padding:12px;outline:none;resize:none;
+  }
+  .sheet textarea{min-height:88px;line-height:1.5;}
+  .swatches{display:flex;flex-wrap:wrap;gap:10px;}
+  .swatch{width:34px;height:34px;border-radius:50%;border:3px solid transparent;flex-shrink:0;}
+  .swatch.sel{border-color:var(--text2);}
+  .emojis{display:flex;flex-wrap:wrap;gap:6px;}
+  .emoji-opt{
+    width:40px;height:40px;border-radius:10px;font-size:21px;
+    display:flex;align-items:center;justify-content:center;background:transparent;
+  }
+  .emoji-opt.sel{background:var(--input);}
+  .sheet-actions{display:flex;gap:10px;margin-top:20px;}
+  .btn{
+    flex:1;font-size:17px;font-weight:700;border-radius:12px;padding:14px;text-align:center;
+  }
+  .btn.primary{background:var(--accent);color:#fff;}
+  .btn.danger{background:var(--danger);color:#fff;}
+  .btn.plain{background:var(--input);color:var(--text);}
+
+  .tools{display:flex;flex-direction:column;gap:10px;margin-top:6px;}
+
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  @keyframes slideUp{from{transform:translateY(40px);opacity:.6}to{transform:translateY(0);opacity:1}}
+  @media (prefers-reduced-motion: reduce){
+    *{animation:none !important;transition:none !important;}
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+"use strict";
+/* ================================================================
+   할 일 목록 — 개인용 PWA (localStorage 저장)
+   구조: lists(상위 폴더) → todos(하위 할 일)
+   ================================================================ */
+
+const STORE_KEY = "todo-app-v1";
+const COLORS = ["#FF3B30","#FF9500","#FFCC00","#34C759","#007AFF","#5856D6","#AF52DE","#FF2D55","#A2845E","#8E8E93"];
+const EMOJIS  = ["📋","🤝","💼","🎬","📊","💡","💰","📞","🏠","🛒","✈️","⭐"];
+
+let state = load();
+let editHome = false;   // 홈 화면 편집 모드
+let editList = false;   // 목록 화면 편집 모드
+let showCompleted = true;
+
+function load(){
+  try{
+    const raw = localStorage.getItem(STORE_KEY);
+    if(raw){
+      const d = JSON.parse(raw);
+      if(Array.isArray(d.lists) && Array.isArray(d.todos)) return d;
+    }
+  }catch(e){}
+  // 최초 실행: 기본 목록 3개
+  const now = Date.now();
+  return {
+    lists:[
+      {id:uid(), name:"거래처 사장님", color:"#007AFF", icon:"🤝", createdAt:now},
+      {id:uid(), name:"유튜브",       color:"#FF3B30", icon:"🎬", createdAt:now},
+      {id:uid(), name:"클로드 대시보드", color:"#AF52DE", icon:"📊", createdAt:now}
+    ],
+    todos:[]
+  };
+}
+function save(){ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+
+/* ---------- 날짜 표기 ---------- */
+function fmtDate(ts){
+  if(!ts) return "";
+  const d = new Date(ts), now = new Date();
+  const sameDay = (a,b)=> a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
+  const yesterday = new Date(now); yesterday.setDate(now.getDate()-1);
+  if(sameDay(d,now)) return "오늘";
+  if(sameDay(d,yesterday)) return "어제";
+  if(d.getFullYear()===now.getFullYear()) return (d.getMonth()+1)+"월 "+d.getDate()+"일";
+  return d.getFullYear()+". "+(d.getMonth()+1)+". "+d.getDate()+".";
+}
+
+/* ---------- 라우팅 (해시 기반: 사파리 뒤로가기 제스처 지원) ---------- */
+function currentRoute(){
+  const h = location.hash;
+  const m = h.match(/^#\/list\/(.+)$/);
+  if(m && state.lists.some(l=>l.id===m[1])) return {view:"list", id:m[1]};
+  return {view:"home"};
+}
+window.addEventListener("hashchange", ()=>{ editList=false; render(); });
+
+function esc(s){
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+/* ================================================================
+   렌더링
+   ================================================================ */
+const app = document.getElementById("app");
+function render(){
+  const r = currentRoute();
+  if(r.view==="list") renderList(r.id);
+  else renderHome();
+}
+
+/* ---------- 홈 ---------- */
+function renderHome(){
+  const active = state.todos.filter(t=>!t.done).length;
+  const done   = state.todos.filter(t=>t.done).length;
+
+  let rows = "";
+  state.lists.forEach(l=>{
+    const cnt = state.todos.filter(t=>t.listId===l.id && !t.done).length;
+    if(editHome){
+      rows += `<div class="row">
+        <div class="list-dot" style="background:${l.color}">${l.icon}</div>
+        <div class="row-main"><div class="row-title">${esc(l.name)}</div></div>
+        <button class="del-btn" onclick="askDeleteList('${l.id}')">삭제</button>
+      </div>`;
+    }else{
+      rows += `<div class="row pressable" onclick="location.hash='#/list/${l.id}'">
+        <div class="list-dot" style="background:${l.color}">${l.icon}</div>
+        <div class="row-main"><div class="row-title">${esc(l.name)}</div></div>
+        <span class="row-count">${cnt}</span><span class="chevron">›</span>
+      </div>`;
+    }
+  });
+
+  app.innerHTML = `
+    <div class="navbar">
+      <div class="side"><button onclick="openTools()" aria-label="백업 및 도구" style="font-size:22px">⚙︎</button></div>
+      <div class="side right">${state.lists.length ? `<button onclick="toggleEditHome()">${editHome?"완료":"편집"}</button>`:""}</div>
+    </div>
+    <div class="screen">
+      <div class="large-title">할 일 목록</div>
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-top"><div class="badge" style="background:#007AFF">▶</div><div class="stat-num">${active}</div></div>
+          <div class="stat-label">진행 중</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-top"><div class="badge" style="background:#8E8E93">✓</div><div class="stat-num">${done}</div></div>
+          <div class="stat-label">완료됨</div>
+        </div>
+      </div>
+      <div class="section-title">나의 목록</div>
+      ${state.lists.length ? `<div class="group">${rows}</div>` : `
+        <div class="group"><div class="empty"><div class="big">🗂️</div>아직 목록이 없습니다.<br>아래 '목록 추가'로 첫 목록을 만들어 보세요.</div></div>`}
+      <button class="add-row" onclick="openNewList()"><span class="plus">+</span> 목록 추가</button>
+    </div>`;
+}
+function toggleEditHome(){ editHome=!editHome; renderHome(); }
+
+/* ---------- 목록 상세 ---------- */
+function renderList(listId){
+  const l = state.lists.find(x=>x.id===listId);
+  if(!l){ location.hash=""; return; }
+
+  const activeTodos = state.todos.filter(t=>t.listId===listId && !t.done)
+                                 .sort((a,b)=>a.createdAt-b.createdAt);
+  const doneTodos   = state.todos.filter(t=>t.listId===listId && t.done)
+                                 .sort((a,b)=>(b.completedAt||0)-(a.completedAt||0));
+
+  let activeRows = "";
+  activeTodos.forEach(t=>{
+    activeRows += `<div class="row">
+      ${editList
+        ? `<button class="minus-btn" onclick="askDeleteTodo('${t.id}')">−</button>`
+        : `<button class="check" onclick="openComplete('${t.id}')" aria-label="완료 처리"></button>`}
+      <div class="row-main">
+        <div class="row-title">${esc(t.text)}</div>
+        <div class="row-sub">${fmtDate(t.createdAt)} 생성</div>
+      </div>
+    </div>`;
+  });
+
+  let doneRows = "";
+  doneTodos.forEach(t=>{
+    doneRows += `<div class="row todo-done">
+      ${editList
+        ? `<button class="minus-btn" onclick="askDeleteTodo('${t.id}')">−</button>`
+        : `<button class="check done" style="background:${l.color}" onclick="uncomplete('${t.id}')" aria-label="완료 취소">✓</button>`}
+      <div class="row-main">
+        <div class="row-title">${esc(t.text)}</div>
+        <div class="row-sub">${fmtDate(t.createdAt)} 생성 · ${fmtDate(t.completedAt)} 완료</div>
+        ${t.memo ? `<div class="memo-line">💬 ${esc(t.memo)}</div>` : ""}
+      </div>
+    </div>`;
+  });
+
+  app.innerHTML = `
+    <div class="navbar">
+      <div class="side"><button class="back-btn" onclick="location.hash=''"><span class="chev">‹</span> 목록</button></div>
+      <div class="side right">${(activeTodos.length+doneTodos.length) ? `<button onclick="toggleEditList()">${editList?"완료":"편집"}</button>`:""}</div>
+    </div>
+    <div class="screen">
+      <div class="large-title" style="color:${l.color}">${l.icon} ${esc(l.name)}</div>
+
+      <div class="new-todo-bar">
+        <input id="newTodoInput" type="text" placeholder="새로운 할 일" enterkeyhint="done"
+               onkeydown="if(event.key==='Enter'){addTodo('${l.id}');}">
+        <button class="go" onclick="addTodo('${l.id}')">추가</button>
+      </div>
+
+      ${activeTodos.length ? `<div class="group">${activeRows}</div>`
+        : `<div class="empty"><div class="big">☑️</div>진행 중인 할 일이 없습니다.<br>위 입력창에서 새 할 일을 추가해 보세요.</div>`}
+
+      ${doneTodos.length ? `
+        <div class="completed-header">
+          <span class="t">완료됨 ${doneTodos.length}개</span>
+          <button style="font-size:15px" onclick="toggleShowCompleted()">${showCompleted?"가리기":"보기"}</button>
+        </div>
+        ${showCompleted ? `<div class="group">${doneRows}</div>`:""}` : ""}
+    </div>`;
+}
+function toggleEditList(){ editList=!editList; render(); }
+function toggleShowCompleted(){ showCompleted=!showCompleted; render(); }
+
+/* ================================================================
+   동작
+   ================================================================ */
+function addTodo(listId){
+  const inp = document.getElementById("newTodoInput");
+  const text = inp.value.trim();
+  if(!text) return;
+  state.todos.push({id:uid(), listId, text, done:false, createdAt:Date.now(), completedAt:null, memo:""});
+  save();
+  render();
+  const again = document.getElementById("newTodoInput");
+  if(again) again.focus();
+}
+function uncomplete(id){
+  const t = state.todos.find(x=>x.id===id);
+  if(!t) return;
+  t.done=false; t.completedAt=null;
+  save(); render();
+}
+
+/* ---------- 시트 공통 ---------- */
+function openSheet(html){
+  closeSheet();
+  const bd = document.createElement("div");
+  bd.className="backdrop"; bd.id="backdrop";
+  bd.innerHTML = `<div class="sheet" onclick="event.stopPropagation()"><div class="sheet-grab"></div>${html}</div>`;
+  bd.addEventListener("click", closeSheet);
+  document.body.appendChild(bd);
+}
+function closeSheet(){
+  const bd = document.getElementById("backdrop");
+  if(bd) bd.remove();
+}
+
+/* ---------- 새 목록 만들기 ---------- */
+let selColor = COLORS[4], selEmoji = EMOJIS[0];
+function openNewList(){
+  selColor = COLORS[4]; selEmoji = EMOJIS[0];
+  openSheet(`
+    <h2>새로운 목록</h2>
+    <div class="desc">폴더처럼 할 일을 묶어서 관리합니다.</div>
+    <label>이름</label>
+    <input type="text" id="listName" placeholder="예: 거래처 사장님" enterkeyhint="done"
+           onkeydown="if(event.key==='Enter'){createList();}">
+    <label>색상</label>
+    <div class="swatches" id="swatches">${COLORS.map(c=>
+      `<button class="swatch${c===selColor?" sel":""}" style="background:${c}" onclick="pickColor('${c}')"></button>`).join("")}</div>
+    <label>아이콘</label>
+    <div class="emojis" id="emojis">${EMOJIS.map(e=>
+      `<button class="emoji-opt${e===selEmoji?" sel":""}" onclick="pickEmoji('${e}')">${e}</button>`).join("")}</div>
+    <div class="sheet-actions">
+      <button class="btn plain" onclick="closeSheet()">취소</button>
+      <button class="btn primary" onclick="createList()">추가</button>
+    </div>`);
+  setTimeout(()=>{ const i=document.getElementById("listName"); if(i) i.focus(); },80);
+}
+function pickColor(c){
+  selColor=c;
+  document.querySelectorAll("#swatches .swatch").forEach(el=>{
+    el.classList.toggle("sel", el.style.background && rgbHex(el.style.background)===c.toLowerCase());
+  });
+}
+function rgbHex(rgb){
+  const m = rgb.match(/\d+/g);
+  if(!m) return rgb.toLowerCase();
+  return "#"+m.slice(0,3).map(n=>(+n).toString(16).padStart(2,"0")).join("");
+}
+function pickEmoji(e){
+  selEmoji=e;
+  document.querySelectorAll("#emojis .emoji-opt").forEach(el=>{
+    el.classList.toggle("sel", el.textContent===e);
+  });
+}
+function createList(){
+  const name = document.getElementById("listName").value.trim();
+  if(!name){ document.getElementById("listName").focus(); return; }
+  state.lists.push({id:uid(), name, color:selColor, icon:selEmoji, createdAt:Date.now()});
+  save(); closeSheet(); render();
+}
+
+/* ---------- 완료 처리 (메모 입력) ---------- */
+let completingId = null;
+function openComplete(id){
+  const t = state.todos.find(x=>x.id===id);
+  if(!t) return;
+  completingId = id;
+  openSheet(`
+    <h2>완료 처리</h2>
+    <div class="desc">“${esc(t.text)}”</div>
+    <label>처리 메모 (선택)</label>
+    <textarea id="memoInput" placeholder="어떻게 처리했는지 남겨 두면 나중에 찾기 좋아요.">${esc(t.memo||"")}</textarea>
+    <div class="sheet-actions">
+      <button class="btn plain" onclick="closeSheet()">취소</button>
+      <button class="btn primary" onclick="confirmComplete()">완료</button>
+    </div>`);
+  setTimeout(()=>{ const i=document.getElementById("memoInput"); if(i) i.focus(); },80);
+}
+function confirmComplete(){
+  const t = state.todos.find(x=>x.id===completingId);
+  if(t){
+    t.done=true; t.completedAt=Date.now();
+    t.memo = document.getElementById("memoInput").value.trim();
+    save();
+  }
+  closeSheet(); render();
+}
+
+/* ---------- 삭제 확인 ---------- */
+function askDeleteList(id){
+  const l = state.lists.find(x=>x.id===id);
+  if(!l) return;
+  const cnt = state.todos.filter(t=>t.listId===id).length;
+  openSheet(`
+    <h2>목록 삭제</h2>
+    <div class="desc">“${esc(l.name)}” 목록과 그 안의 할 일 ${cnt}개가 함께 삭제됩니다. 되돌릴 수 없습니다.</div>
+    <div class="sheet-actions">
+      <button class="btn plain" onclick="closeSheet()">취소</button>
+      <button class="btn danger" onclick="deleteList('${id}')">삭제</button>
+    </div>`);
+}
+function deleteList(id){
+  state.lists = state.lists.filter(l=>l.id!==id);
+  state.todos = state.todos.filter(t=>t.listId!==id);
+  if(!state.lists.length) editHome=false;
+  save(); closeSheet(); render();
+}
+function askDeleteTodo(id){
+  const t = state.todos.find(x=>x.id===id);
+  if(!t) return;
+  openSheet(`
+    <h2>할 일 삭제</h2>
+    <div class="desc">“${esc(t.text)}”${t.memo?" (처리 메모 포함)":""}을(를) 삭제합니다. 되돌릴 수 없습니다.</div>
+    <div class="sheet-actions">
+      <button class="btn plain" onclick="closeSheet()">취소</button>
+      <button class="btn danger" onclick="deleteTodo('${id}')">삭제</button>
+    </div>`);
+}
+function deleteTodo(id){
+  const t = state.todos.find(x=>x.id===id);
+  state.todos = state.todos.filter(x=>x.id!==id);
+  if(t && !state.todos.some(x=>x.listId===t.listId)) editList=false;
+  save(); closeSheet(); render();
+}
+
+/* ---------- 백업 / 복원 ---------- */
+function openTools(){
+  const total = state.todos.length, done = state.todos.filter(t=>t.done).length;
+  openSheet(`
+    <h2>도구</h2>
+    <div class="desc">데이터는 이 기기(브라우저)에만 저장됩니다. 가끔 백업해 두면 안전합니다.<br>
+    목록 ${state.lists.length}개 · 할 일 ${total}개 (완료 ${done}개)</div>
+    <div class="tools">
+      <button class="btn plain" onclick="exportData()">📤 백업 파일 내려받기</button>
+      <button class="btn plain" onclick="document.getElementById('importFile').click()">📥 백업 파일 불러오기</button>
+      <input type="file" id="importFile" accept=".json,application/json" style="display:none" onchange="importData(this)">
+    </div>
+    <div class="sheet-actions">
+      <button class="btn primary" onclick="closeSheet()">닫기</button>
+    </div>`);
+}
+function exportData(){
+  const d = new Date();
+  const name = "할일백업_"+d.getFullYear()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0")+".json";
+  const blob = new Blob([JSON.stringify(state,null,2)],{type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function importData(inp){
+  const f = inp.files[0];
+  if(!f) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    try{
+      const d = JSON.parse(reader.result);
+      if(!Array.isArray(d.lists) || !Array.isArray(d.todos)) throw new Error("bad");
+      openSheet(`
+        <h2>백업 불러오기</h2>
+        <div class="desc">현재 데이터를 백업 파일 내용(목록 ${d.lists.length}개, 할 일 ${d.todos.length}개)으로 완전히 교체합니다.</div>
+        <div class="sheet-actions">
+          <button class="btn plain" onclick="closeSheet()">취소</button>
+          <button class="btn danger" id="importGo">교체</button>
+        </div>`);
+      document.getElementById("importGo").onclick = ()=>{
+        state = d; save(); closeSheet(); location.hash=""; render();
+      };
+    }catch(e){
+      openSheet(`
+        <h2>불러오기 실패</h2>
+        <div class="desc">이 파일은 할 일 백업 파일이 아닙니다. '백업 파일 내려받기'로 만든 .json 파일을 선택해 주세요.</div>
+        <div class="sheet-actions"><button class="btn primary" onclick="closeSheet()">확인</button></div>`);
+    }
+  };
+  reader.readAsText(f);
+}
+
+/* ================================================================
+   사파리 터치 안정화 + PWA
+   ================================================================ */
+// 핀치 확대 차단 (홈 화면 앱 / 사파리)
+document.addEventListener("gesturestart", e=>e.preventDefault());
+document.addEventListener("dblclick", e=>e.preventDefault());
+
+if("serviceWorker" in navigator){
+  window.addEventListener("load", ()=>{ navigator.serviceWorker.register("./sw.js").catch(()=>{}); });
+}
+
+save();
+render();
+</script>
+</body>
+</html>
