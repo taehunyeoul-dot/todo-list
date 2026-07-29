@@ -194,6 +194,10 @@
   .pline.more{color:var(--sub);font-size:13px;padding-left:24px;}
   .card-date{font-size:12px;color:var(--sub);margin-top:8px;}
   .find-empty{text-align:center;color:var(--sub);font-size:15px;line-height:1.7;padding:60px 20px;}
+  .reveal-btn{
+    display:block;margin:14px auto 0;font-size:14px;color:var(--sub);
+    padding:9px 18px;border:1px solid var(--line);border-radius:999px;
+  }
   .gap{height:18px;}
 
   /* ===== 시트(팝업) ===== */
@@ -290,6 +294,7 @@ let state = load();
 let searchQ = "";
 let filterLabel = "all";
 let labelEditMode = false;
+let showHidden = false;
 
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
 function load(){
@@ -700,6 +705,8 @@ function memoMatches(m, q){
     i.text.toLowerCase().includes(q) || (i.result||"").toLowerCase().includes(q));
 }
 
+function toggleHidden(){ showHidden = !showHidden; renderResults(); }
+
 function renderResults(){
   const box = document.getElementById("findResults");
   if(!box) return;
@@ -707,15 +714,22 @@ function renderResults(){
   let memos = state.memos.slice();
   if(filterLabel!=="all") memos = memos.filter(m=>m.labelId===filterLabel);
   memos = memos.filter(m=>memoMatches(m, q));
+  /* 최근에 편집한 메모가 위로 */
   memos.sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
 
   const open = memos.filter(m=>!isDoneMemo(m));
   const done = memos.filter(isDoneMemo);
+  /* 완료 메모는 기본 숨김 — 검색 중이거나 '숨긴 메모 보기'를 켰을 때만 표시 */
+  const revealDone = q ? true : showHidden;
 
-  if(!open.length && !done.length){
-    box.innerHTML = `<div class="find-empty">${q || filterLabel!=="all"
+  if(!open.length && !(revealDone && done.length)){
+    let html = `<div class="find-empty">${q || filterLabel!=="all"
       ? "조건에 맞는 메모가 없습니다."
-      : "아직 메모가 없습니다.<br>첫 화면의 메모하기에서 시작해 보세요."}</div>`;
+      : "진행 중인 메모가 없습니다.<br>첫 화면의 메모하기에서 시작해 보세요."}</div>`;
+    if(!q && done.length){
+      html += `<button class="reveal-btn" onclick="toggleHidden()">숨긴 메모 ${done.length}개 보기</button>`;
+    }
+    box.innerHTML = html;
     return;
   }
   let html = "";
@@ -723,10 +737,15 @@ function renderResults(){
     html += `<div class="find-section">진행 중<span class="n">${open.length}</span></div>`;
     html += open.map(cardHTML).join("");
   }
-  if(done.length){
+  if(revealDone && done.length){
     if(open.length) html += `<div class="gap"></div>`;
     html += `<div class="find-section">완료<span class="n">${done.length}</span></div>`;
     html += done.map(cardHTML).join("");
+  }
+  if(!q && done.length){
+    html += `<button class="reveal-btn" onclick="toggleHidden()">${showHidden
+      ? "숨긴 메모 가리기"
+      : "숨긴 메모 "+done.length+"개 보기"}</button>`;
   }
   box.innerHTML = html;
 }
