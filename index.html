@@ -430,14 +430,18 @@ function renderHome(){
       </div>
     </div>`;
 }
-function startNewMemo(){
-  const m = {id:uid(), labelId:null, createdAt:Date.now(), updatedAt:Date.now(),
+function startNewMemo(labelId){
+  const m = {id:uid(), labelId:labelId||null, createdAt:Date.now(), updatedAt:Date.now(),
              items:[{id:uid(), text:"", done:false, checkedAt:null, result:""}]};
   state.memos.push(m);
   save();
   location.hash = "#/edit/"+m.id;
   render();
   focusItem(0);
+}
+/* 메모찾기에서 새 메모: 보고 있던 라벨 탭이 있으면 그 라벨을 미리 지정 */
+function newMemoFromFind(){
+  startNewMemo(filterLabel!=="all" && filterLabel!=="none" ? filterLabel : null);
 }
 
 /* ================================================================
@@ -672,7 +676,7 @@ function renderFind(){
   app.innerHTML = `
     <div class="topbar">
       <button class="tb-btn" onclick="history.back()"><span class="chev">‹</span> 뒤로</button>
-      <span></span>
+      <button class="tb-btn" onclick="newMemoFromFind()">새 메모</button>
     </div>
     <div class="screen">
       <div class="find-title">메모찾기</div>
