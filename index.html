@@ -927,6 +927,7 @@ function setStatus(s){
   if(hf) hf.textContent = syncCfg ? s : "";
 }
 
+let lastScopes = null;   /* 마지막 응답의 토큰 권한 목록 (X-OAuth-Scopes) */
 async function gh(path, opts){
   opts = opts || {};
   const headers = {
@@ -934,18 +935,30 @@ async function gh(path, opts){
     "Accept": "application/vnd.github+json"
   };
   if(opts.body) headers["Content-Type"] = "application/json";
-  const res = await fetch("https://api.github.com"+path, {
-    method: opts.method || "GET",
-    headers: headers,
-    body: opts.body || undefined,
-    keepalive: !!opts.keepalive
-  });
+  const ctrl = new AbortController();
+  const tm = setTimeout(()=>ctrl.abort(), 15000);
+  let res;
+  try{
+    res = await fetch("https://api.github.com"+path, {
+      method: opts.method || "GET",
+      headers: headers,
+      body: opts.body || undefined,
+      keepalive: !!opts.keepalive,
+      signal: ctrl.signal
+    });
+  }finally{ clearTimeout(tm); }
+  const sc = res.headers.get("x-oauth-scopes");
+  if(sc !== null) lastScopes = sc;
   if(!res.ok){
     const err = new Error("http "+res.status);
     err.status = res.status;
     throw err;
   }
   return res.json();
+}
+function hasGistScope(){
+  if(lastScopes === null) return true;   /* 헤더를 못 읽는 환경이면 판단 보류 */
+  return lastScopes.split(",").map(s=>s.trim()).indexOf("gist") !== -1;
 }
 
 /* 실패 원인을 사람이 읽을 수 있는 문장으로 */
@@ -1070,8 +1083,54 @@ async function ensureGist(){
 async function connectSync(token){
   syncCfg = {token: token};
   await ensureGist();
+  /* gist 권한 없는 토큰은 읽기만 되고 업로드가 전부 실패하므로 연결 자체를 거절 */
+  if(!hasGistScope()){
+    const err = new Error("no gist scope");
+    err.status = 403;
+    throw err;
+  }
   await pullRemote();
   setStatus("동기화됨 · "+fmtTime(Date.now()));
+}
+
+/* ---------- 연결 진단 ---------- */
+async function runDiag(){
+  const box = document.getElementById("diagBox");
+  if(!box || !syncCfg) return;
+  const lines = [];
+  const show = ()=>{ box.innerHTML = "<b>진단 결과</b><br>" + lines.join("<br>"); };
+  lines.push("진단 중…"); show(); lines.length = 0;
+
+  lines.push(syncCfg.token.indexOf("ghp_")===0
+    ? "1. 토큰 형식: 정상 (classic)"
+    : "1. 토큰 형식: 비정상 — classic(ghp_) 토큰이 아닙니다");
+  try{
+    const u = await gh("/user");
+    lines.push("2. 토큰 유효성: 정상 (계정 "+esc(u.login)+")");
+    lines.push(hasGistScope()
+      ? "3. gist 권한: 있음"
+      : "3. gist 권한: 없음 — 이게 원인입니다. 새 토큰을 만들 때 gist를 체크하세요");
+  }catch(e){
+    lines.push("2. 토큰 유효성: 실패 — "+syncErrText(e));
+    show(); return;
+  }
+  try{
+    const g = await gh("/gists/"+syncCfg.gistId);
+    lines.push("4. 저장소 읽기: 정상 (마지막 수정 "+fmtTime(new Date(g.updated_at).getTime())+")");
+  }catch(e){
+    lines.push("4. 저장소 읽기: 실패 — "+syncErrText(e));
+  }
+  try{
+    await gh("/gists/"+syncCfg.gistId, {method:"PATCH",
+      body: JSON.stringify({files:{[GIST_FILE]:{content: JSON.stringify(state)}}})});
+    syncCfg.lastPushAt = Date.now();
+    saveSyncCfg();
+    setStatus("동기화됨 · "+fmtTime(syncCfg.lastPushAt));
+    lines.push("5. 업로드 시험: 성공 — 동기화가 정상 동작합니다");
+  }catch(e){
+    lines.push("5. 업로드 시험: 실패 — "+syncErrText(e));
+  }
+  show();
 }
 
 async function pullRemote(){
@@ -1170,8 +1229,10 @@ function openSyncSheet(){
       마지막 확인: ${syncCfg.lastPullAt ? fmtTime(syncCfg.lastPullAt) : "-"}</div>
       <div class="tool-list">
         <button class="tool-btn" onclick="manualSync()">지금 동기화</button>
+        <button class="tool-btn" onclick="runDiag()">연결 진단</button>
         <button class="tool-btn" onclick="disconnectSync()" style="color:var(--danger)">연결 해제</button>
       </div>
+      <div class="desc" id="diagBox" style="margin-top:12px;line-height:1.8"></div>
       <div class="sheet-actions">
         <button class="btn primary" onclick="closeSheet()">닫기</button>
       </div>`);
