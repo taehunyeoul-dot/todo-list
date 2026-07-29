@@ -168,31 +168,29 @@
 
   .find-section{font-size:13px;font-weight:700;color:var(--sub);margin:6px 2px 10px;letter-spacing:.02em;}
   .find-section .n{font-weight:500;margin-left:6px;}
-  .card{
-    background:var(--surface);border-radius:14px;padding:14px 15px;margin-bottom:10px;
-    width:100%;text-align:left;display:block;
-  }
-  .card:active{opacity:1;background:var(--press);}
-  .card-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;}
-  .card-label{
-    font-size:12px;color:var(--accent);font-weight:600;letter-spacing:-.1px;
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  }
-  .card-label.nolabel{color:var(--sub);font-weight:400;}
-  .card-count{font-size:12px;color:var(--sub);flex-shrink:0;}
-  .pline{display:flex;align-items:center;gap:9px;padding:2.5px 0;min-width:0;}
-  .pline .dot{
-    width:15px;height:15px;border-radius:50%;flex-shrink:0;
+  .group{background:var(--surface);border-radius:14px;overflow:hidden;margin-bottom:14px;}
+  .mrow{display:flex;align-items:flex-start;gap:11px;padding:12px 14px;width:100%;text-align:left;position:relative;}
+  .mrow + .mrow::before{content:"";position:absolute;top:0;left:45px;right:0;height:1px;background:var(--line);}
+  .mrow:active{opacity:1;background:var(--press);}
+  .mrow .dot{
+    width:20px;height:20px;border-radius:50%;flex-shrink:0;margin-top:1px;
     border:1.5px solid var(--sub);position:relative;
   }
-  .pline.done .dot{background:var(--accent);border-color:var(--accent);}
-  .pline .t{
-    font-size:15px;line-height:1.4;flex:1;min-width:0;
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  .mrow.done .dot{background:var(--accent);border-color:var(--accent);}
+  .mrow.done .dot::after{
+    content:"";position:absolute;left:5.5px;top:2.5px;width:5px;height:9px;
+    border-right:1.8px solid var(--chk-check);border-bottom:1.8px solid var(--chk-check);
+    transform:rotate(42deg);
   }
-  .pline.done .t{color:var(--sub);}
-  .pline.more{color:var(--sub);font-size:13px;padding-left:24px;}
-  .card-date{font-size:12px;color:var(--sub);margin-top:8px;}
+  .mrow-body{flex:1;min-width:0;}
+  .mrow-text{font-size:16px;line-height:1.4;word-break:break-word;}
+  .mrow.done .mrow-text{color:var(--sub);}
+  .mrow-sub{font-size:12px;color:var(--sub);margin-top:3px;}
+  .mrow-sub .lb{color:var(--accent);font-weight:600;}
+  .mrow-result{
+    font-size:13px;color:var(--sub);margin-top:5px;
+    background:var(--field);border-radius:7px;padding:5px 8px;word-break:break-word;
+  }
   .find-empty{text-align:center;color:var(--sub);font-size:15px;line-height:1.7;padding:60px 20px;}
   .reveal-btn{
     display:block;margin:14px auto 0;font-size:14px;color:var(--sub);
@@ -445,7 +443,6 @@ function renderEdit(id){
                 onclick="openLabelSheet()">${esc(labelName(memo.labelId) || "라벨 지정")}</button>
       </div>
       <div id="items"></div>
-      <button class="ghost-add" onclick="addItem()"><span class="ring"></span>새 항목</button>
     </div>
     <div class="editor-bar" id="editorBar">
       <button onclick="openLabelSheet()">라벨</button>
@@ -458,11 +455,12 @@ function renderEdit(id){
 function buildItems(memo){
   const wrap = document.getElementById("items");
   if(!wrap) return;
+  if(!memo.items.length) memo.items.push({id:uid(), text:"", done:false, checkedAt:null, result:""});
   wrap.innerHTML = "";
-  memo.items.forEach((it, idx)=> wrap.appendChild(itemNode(memo, it, idx)));
+  wrap.appendChild(itemNode(memo, memo.items[0]));
 }
 
-function itemNode(memo, it, idx){
+function itemNode(memo, it){
   const row = document.createElement("div");
   row.className = "item" + (it.done ? " done" : "");
 
@@ -488,10 +486,8 @@ function itemNode(memo, it, idx){
   ta.onkeydown = (e)=>{
     if(e.key === "Enter"){
       e.preventDefault();
-      insertItemAfter(memo, idx);
-    }else if(e.key === "Backspace" && ta.value === "" && memo.items.length > 1){
-      e.preventDefault();
-      removeItem(memo, idx);
+      const r = row.querySelector(".item-result");
+      if(r) r.focus();
     }
   };
   body.appendChild(ta);
@@ -509,6 +505,7 @@ function itemNode(memo, it, idx){
   res.value = it.result || "";
   res.placeholder = "처리 결과";
   res.oninput = ()=>{ it.result = res.value; grow(res); touch(memo); };
+  res.onkeydown = (e)=>{ if(e.key === "Enter"){ e.preventDefault(); res.blur(); } };
   body.appendChild(res);
 
   row.appendChild(chk);
@@ -529,26 +526,6 @@ function focusItem(idx, toEnd){
     if(toEnd){ const n = el.value.length; el.setSelectionRange(n, n); }
   }
 }
-function addItem(){
-  const memo = currentMemo();
-  if(!memo) return;
-  memo.items.push({id:uid(), text:"", done:false, checkedAt:null, result:""});
-  touch(memo);
-  buildItems(memo);
-  focusItem(memo.items.length-1);
-}
-function insertItemAfter(memo, idx){
-  memo.items.splice(idx+1, 0, {id:uid(), text:"", done:false, checkedAt:null, result:""});
-  touch(memo);
-  buildItems(memo);
-  focusItem(idx+1);
-}
-function removeItem(memo, idx){
-  memo.items.splice(idx, 1);
-  touch(memo);
-  buildItems(memo);
-  focusItem(Math.max(0, idx-1), true);
-}
 function newMemoFromEditor(){
   const memo = currentMemo();
   if(memo){
@@ -568,10 +545,9 @@ function newMemoFromEditor(){
 function askDeleteMemo(){
   const memo = currentMemo();
   if(!memo) return;
-  const n = memo.items.filter(i=>i.text.trim()).length;
   openSheet(`
     <h2>메모 삭제</h2>
-    <div class="desc">이 메모의 할 일 ${n}개와 처리 기록이 함께 삭제됩니다. (자동 스냅샷과 클라우드 이력에는 남습니다)</div>
+    <div class="desc">이 할 일과 처리 기록이 삭제됩니다. (자동 스냅샷과 클라우드 이력에는 남습니다)</div>
     <div class="sheet-actions">
       <button class="btn plain" onclick="closeSheet()">취소</button>
       <button class="btn danger" onclick="deleteMemo()">삭제</button>
@@ -741,12 +717,11 @@ function renderResults(){
   let html = "";
   if(open.length){
     html += `<div class="find-section">진행 중<span class="n">${open.length}</span></div>`;
-    html += open.map(cardHTML).join("");
+    html += `<div class="group">` + open.map(rowHTML).join("") + `</div>`;
   }
   if(revealDone && done.length){
-    if(open.length) html += `<div class="gap"></div>`;
     html += `<div class="find-section">완료<span class="n">${done.length}</span></div>`;
-    html += done.map(cardHTML).join("");
+    html += `<div class="group">` + done.map(rowHTML).join("") + `</div>`;
   }
   if(!q && done.length){
     html += `<button class="reveal-btn" onclick="toggleHidden()">${showHidden
@@ -756,22 +731,22 @@ function renderResults(){
   box.innerHTML = html;
 }
 
-function cardHTML(m){
-  const texted = m.items.filter(i=>i.text.trim());
-  const doneN = texted.filter(i=>i.done).length;
-  const shown = texted.slice(0,3);
-  const lines = shown.map(i=>
-    `<div class="pline ${i.done?"done":""}"><span class="dot"></span><span class="t">${esc(i.text)}</span></div>`).join("")
-    || `<div class="pline"><span class="t" style="color:var(--sub)">빈 메모</span></div>`;
-  const more = texted.length>3 ? `<div class="pline more">외 ${texted.length-3}개</div>` : "";
+function rowHTML(m){
+  const it = m.items[0] || {text:"", done:false, checkedAt:null, result:""};
+  const done = isDoneMemo(m);
   const ln = labelName(m.labelId);
-  return `<button class="card" onclick="location.hash='#/edit/${m.id}'">
-    <div class="card-top">
-      <span class="card-label ${ln?"":"nolabel"}">${ln?esc(ln):"라벨 없음"}</span>
-      <span class="card-count">${texted.length?`${doneN}/${texted.length}`:""}</span>
-    </div>
-    ${lines}${more}
-    <div class="card-date">${fmtDate(m.createdAt)} 작성</div>
+  const sub = [];
+  if(ln) sub.push(`<span class="lb">${esc(ln)}</span>`);
+  sub.push(fmtDate(m.createdAt)+" 작성");
+  if(done && it.checkedAt) sub.push(fmtDate(it.checkedAt)+" 완료");
+  const text = it.text.trim() ? esc(it.text) : `<span style="color:var(--sub)">빈 메모</span>`;
+  return `<button class="mrow ${done?"done":""}" onclick="location.hash='#/edit/${m.id}'">
+    <span class="dot"></span>
+    <span class="mrow-body">
+      <div class="mrow-text">${text}</div>
+      <div class="mrow-sub">${sub.join(" · ")}</div>
+      ${done && (it.result||"").trim() ? `<div class="mrow-result">${esc(it.result)}</div>` : ""}
+    </span>
   </button>`;
 }
 
@@ -853,6 +828,7 @@ function askRestoreSnap(key){
     state.memos.forEach(m=>m.updatedAt = now);
     state.deleted = {labels:{}, memos:{}};
     save();
+    migrateSingle();
     closeSheet();
     render(true);
   };
@@ -887,7 +863,7 @@ function importData(inp){
         state.labels.forEach(l=>l.updatedAt = now);
         state.memos.forEach(m=>m.updatedAt = now);
         state.deleted = {labels:{}, memos:{}};
-        save(); closeSheet(); render(true);
+        save(); migrateSingle(); closeSheet(); render(true);
       };
     }catch(e){
       openSheet(`
@@ -1083,10 +1059,12 @@ async function pullRemote(){
     pruneSnaps();
     state = merged;
     save({noPush:true, keepStamp:true});
+    migrateSingle();
     render(true);
   }else{
     state = merged;
     save({noPush:true, keepStamp:true});
+    migrateSingle();
   }
   if(remoteChanged){
     schedulePush(400);
@@ -1230,7 +1208,38 @@ if("serviceWorker" in navigator){
 }
 
 /* ---------- 시작 ---------- */
+/* 예전 구조(메모 하나에 할 일 여러 개)를 할 일 1개짜리 메모들로 분리.
+   분리된 id가 기기마다 동일하도록 원본 id에서 파생시켜 동기화 중복을 막는다. */
+function migrateSingle(){
+  normDeleted(state);
+  let changed = false;
+  const out = [];
+  state.memos.forEach(m=>{
+    const texted = m.items.filter(i=> (i.text||"").trim() || (i.result||"").trim());
+    if(texted.length > 1){
+      texted.forEach(it=>{
+        out.push({id: m.id+"_"+it.id, labelId:m.labelId, createdAt:m.createdAt,
+                  updatedAt:m.updatedAt||m.createdAt||0, items:[it]});
+      });
+      state.deleted.memos[m.id] = Date.now();
+      changed = true;
+    }else{
+      if(m.items.length > 1){
+        m.items = [texted[0] || m.items[0]];
+        changed = true;
+      }
+      out.push(m);
+    }
+  });
+  if(changed){
+    state.memos = out;
+    save({keepStamp:true});
+  }
+  return changed;
+}
+
 save({noPush:true, keepStamp:true});
+migrateSingle();
 dailySnapshot();
 render();
 if(syncCfg && syncCfg.gistId){
