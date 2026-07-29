@@ -160,11 +160,13 @@
   .chips::-webkit-scrollbar-track{background:transparent;}
   .chips::-webkit-scrollbar-thumb{background:var(--line);border-radius:2px;}
   .chip{
+    display:flex;align-items:center;
     font-size:14px;color:var(--sub);border:1px solid var(--line);
     padding:7px 14px;border-radius:999px;background:transparent;letter-spacing:-.1px;
     flex-shrink:0;white-space:nowrap;
   }
   .chip.on{color:var(--accent);border-color:var(--accent);background:var(--accent-soft);font-weight:600;}
+  .cdot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;flex-shrink:0;}
 
   .find-section{font-size:13px;font-weight:700;color:var(--sub);margin:6px 2px 10px;letter-spacing:.02em;}
   .find-section .n{font-weight:500;margin-left:6px;}
@@ -291,8 +293,25 @@ const GIST_FILE = "memo-data.json";
 let state = load();
 let searchQ = "";
 let filterLabel = "all";
-let labelEditMode = false;
 let showHidden = false;
+
+/* 라벨 자동 색상 — 밝은/어두운 배경 모두에서 읽히는 8색 */
+const LABEL_COLORS = ["#3B82D6","#199C87","#D08A2B","#9A6AD8","#D2497E","#7BA43B","#D05A50","#5E93B8"];
+function nextLabelColor(){
+  const used = {};
+  state.labels.forEach(l=>{ if(l.color) used[l.color] = (used[l.color]||0)+1; });
+  let best = LABEL_COLORS[0], bestN = Infinity;
+  LABEL_COLORS.forEach(c=>{ const n = used[c]||0; if(n < bestN){ bestN = n; best = c; } });
+  return best;
+}
+function assignColors(){
+  let changed = false;
+  state.labels.forEach(l=>{
+    if(!l.color){ l.color = nextLabelColor(); l.updatedAt = Date.now(); changed = true; }
+  });
+  if(changed) save({keepStamp:true});
+  return changed;
+}
 
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
 function load(){
@@ -439,15 +458,15 @@ function renderEdit(id){
     <div class="screen editor-screen">
       <div class="memo-meta">
         <span class="when">${fmtDate(memo.createdAt)} 작성</span>
-        <button class="label-chip ${memo.labelId && labelName(memo.labelId) ? "" : "empty"}"
-                onclick="openLabelSheet()">${esc(labelName(memo.labelId) || "라벨 지정")}</button>
       </div>
+      <div class="chips" id="editorChips"></div>
       <div id="items"></div>
     </div>
     <div class="editor-bar" id="editorBar">
-      <button onclick="openLabelSheet()">라벨</button>
+      <span></span>
       <button onclick="newMemoFromEditor()">새 메모</button>
     </div>`;
+  renderEditorChips(memo);
   buildItems(memo);
   adjustBar();
 }
@@ -565,50 +584,48 @@ function deleteMemo(){
 /* ================================================================
    라벨 시트
    ================================================================ */
-function openLabelSheet(){ labelEditMode = false; renderLabelSheet(); }
-
-function renderLabelSheet(){
+function renderEditorChips(memo){
+  const box = document.getElementById("editorChips");
+  if(!box) return;
+  box.innerHTML = state.labels.map(l=>{
+    const on = memo.labelId===l.id;
+    const st = on ? ` style="color:${l.color};border-color:${l.color};background:${l.color}1A;font-weight:600"` : "";
+    return `<button class="chip${on?" on":""}"${st} onclick="pickEditorLabel('${l.id}')">`+
+           `<span class="cdot" style="background:${l.color}"></span>${esc(l.name)}</button>`;
+  }).join("") +
+  `<button class="chip" onclick="openLabelSheet()">라벨 편집</button>`;
+}
+function pickEditorLabel(id){
   const memo = currentMemo();
   if(!memo) return;
-
-  if(!labelEditMode){
-    const cells = [`<button class="label-opt none ${memo.labelId?"":"on"}" onclick="pickLabel(null)">라벨 없음</button>`]
-      .concat(state.labels.map(l=>
-        `<button class="label-opt ${memo.labelId===l.id?"on":""}" onclick="pickLabel('${l.id}')">${esc(l.name)}</button>`));
-    openSheet(`
-      <h2>라벨</h2>
-      <div class="desc">이 메모를 분류할 라벨을 선택하세요.</div>
-      <div class="label-grid">${cells.join("")}</div>
-      <div class="sheet-foot">
-        <button class="quiet" onclick="toggleLabelEdit()">라벨 편집</button>
-        <button onclick="closeSheet()">닫기</button>
-      </div>`);
-  }else{
-    const rows = state.labels.map(l=>`
-      <div class="label-edit-row">
-        <input type="text" maxlength="8" value="${esc(l.name)}"
-               oninput="renameLabel('${l.id}', this.value)">
-        <button class="rm" onclick="askDeleteLabel('${l.id}')">삭제</button>
-      </div>`).join("");
-    openSheet(`
-      <h2>라벨 편집</h2>
-      <div class="desc">이름을 고치거나(8자 이내), 추가·삭제할 수 있습니다.</div>
-      ${rows || `<div class="desc">라벨이 없습니다. 아래에서 추가하세요.</div>`}
-      <div class="label-add-row">
-        <input type="text" id="newLabelInput" maxlength="8" placeholder="새 라벨 (8자 이내)"
-               onkeydown="if(event.key==='Enter'){addLabel();}">
-        <button class="go" onclick="addLabel()">추가</button>
-      </div>
-      <div class="sheet-foot">
-        <span></span>
-        <button onclick="toggleLabelEdit()">완료</button>
-      </div>`);
-  }
+  memo.labelId = (memo.labelId===id) ? null : id;   /* 다시 누르면 해제(미분류) */
+  touch(memo);
+  renderEditorChips(memo);
 }
-function toggleLabelEdit(){ labelEditMode = !labelEditMode; renderLabelSheet(); }
-function pickLabel(id){
-  const memo = currentMemo();
-  if(memo){ memo.labelId = id; touch(memo); }
+
+function openLabelSheet(){ renderLabelSheet(); }
+function renderLabelSheet(){
+  const rows = state.labels.map(l=>`
+    <div class="label-edit-row">
+      <span class="cdot" style="background:${l.color}"></span>
+      <input type="text" maxlength="8" value="${esc(l.name)}"
+             oninput="renameLabel('${l.id}', this.value)">
+      <button class="rm" onclick="askDeleteLabel('${l.id}')">삭제</button>
+    </div>`).join("");
+  openSheet(`
+    <h2>라벨 편집</h2>
+    <div class="desc">이름을 고치거나(8자 이내), 추가·삭제할 수 있습니다. 색은 자동으로 지정됩니다.</div>
+    ${rows || `<div class="desc">라벨이 없습니다. 아래에서 추가하세요.</div>`}
+    <div class="label-add-row">
+      <input type="text" id="newLabelInput" maxlength="8" placeholder="새 라벨 (8자 이내)"
+             onkeydown="if(event.key==='Enter'){addLabel();}">
+      <button class="go" onclick="addLabel()">추가</button>
+    </div>
+    <div class="sheet-actions">
+      <button class="btn primary" onclick="closeLabelSheet()">완료</button>
+    </div>`);
+}
+function closeLabelSheet(){
   closeSheet();
   render(true);
 }
@@ -620,7 +637,7 @@ function addLabel(){
   const inp = document.getElementById("newLabelInput");
   const name = inp.value.trim().slice(0,8);
   if(!name){ inp.focus(); return; }
-  state.labels.push({id:uid(), name, updatedAt:Date.now()});
+  state.labels.push({id:uid(), name, updatedAt:Date.now(), color:nextLabelColor()});
   save();
   renderLabelSheet();
   const again = document.getElementById("newLabelInput");
@@ -634,7 +651,7 @@ function askDeleteLabel(id){
     <h2>라벨 삭제</h2>
     <div class="desc">“${esc(l.name)}” 라벨을 삭제합니다.${used?` 메모 ${used}개에서 이 라벨이 해제됩니다.`:""} 메모 자체는 지워지지 않습니다.</div>
     <div class="sheet-actions">
-      <button class="btn plain" onclick="labelEditMode=true;renderLabelSheet()">취소</button>
+      <button class="btn plain" onclick="renderLabelSheet()">취소</button>
       <button class="btn danger" onclick="deleteLabel('${id}')">삭제</button>
     </div>`);
 }
@@ -645,7 +662,6 @@ function deleteLabel(id){
   state.memos.forEach(m=>{ if(m.labelId===id) m.labelId=null; });
   if(filterLabel===id) filterLabel="all";
   save();
-  labelEditMode = true;
   renderLabelSheet();
 }
 
@@ -676,8 +692,13 @@ function renderChips(){
   if(!box) return;
   box.innerHTML =
     `<button class="chip ${filterLabel==="all"?"on":""}" onclick="setFilter('all')">전체</button>` +
-    state.labels.map(l=>
-      `<button class="chip ${filterLabel===l.id?"on":""}" onclick="setFilter('${l.id}')">${esc(l.name)}</button>`).join("");
+    `<button class="chip ${filterLabel==="none"?"on":""}" onclick="setFilter('none')">미분류</button>` +
+    state.labels.map(l=>{
+      const on = filterLabel===l.id;
+      const st = on ? ` style="color:${l.color};border-color:${l.color};background:${l.color}1A;font-weight:600"` : "";
+      return `<button class="chip${on?" on":""}"${st} onclick="setFilter('${l.id}')">`+
+             `<span class="cdot" style="background:${l.color}"></span>${esc(l.name)}</button>`;
+    }).join("");
 }
 
 function memoMatches(m, q){
@@ -694,7 +715,8 @@ function renderResults(){
   if(!box) return;
   const q = searchQ.trim().toLowerCase();
   let memos = state.memos.slice();
-  if(filterLabel!=="all") memos = memos.filter(m=>m.labelId===filterLabel);
+  if(filterLabel==="none") memos = memos.filter(m=>!m.labelId || !state.labels.some(l=>l.id===m.labelId));
+  else if(filterLabel!=="all") memos = memos.filter(m=>m.labelId===filterLabel);
   memos = memos.filter(m=>memoMatches(m, q));
   /* 최근에 편집한 메모가 위로 */
   memos.sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
@@ -734,14 +756,16 @@ function renderResults(){
 function rowHTML(m){
   const it = m.items[0] || {text:"", done:false, checkedAt:null, result:""};
   const done = isDoneMemo(m);
-  const ln = labelName(m.labelId);
+  const l = state.labels.find(x=>x.id===m.labelId);
   const sub = [];
-  if(ln) sub.push(`<span class="lb">${esc(ln)}</span>`);
+  if(l) sub.push(`<span class="lb" style="color:${l.color}">${esc(l.name)}</span>`);
   sub.push(fmtDate(m.createdAt)+" 작성");
   if(done && it.checkedAt) sub.push(fmtDate(it.checkedAt)+" 완료");
   const text = it.text.trim() ? esc(it.text) : `<span style="color:var(--sub)">빈 메모</span>`;
+  const dotStyle = l ? (done ? ` style="background:${l.color};border-color:${l.color}"`
+                             : ` style="border-color:${l.color}"`) : "";
   return `<button class="mrow ${done?"done":""}" onclick="location.hash='#/edit/${m.id}'">
-    <span class="dot"></span>
+    <span class="dot"${dotStyle}></span>
     <span class="mrow-body">
       <div class="mrow-text">${text}</div>
       <div class="mrow-sub">${sub.join(" · ")}</div>
@@ -829,6 +853,7 @@ function askRestoreSnap(key){
     state.deleted = {labels:{}, memos:{}};
     save();
     migrateSingle();
+    assignColors();
     closeSheet();
     render(true);
   };
@@ -863,7 +888,7 @@ function importData(inp){
         state.labels.forEach(l=>l.updatedAt = now);
         state.memos.forEach(m=>m.updatedAt = now);
         state.deleted = {labels:{}, memos:{}};
-        save(); migrateSingle(); closeSheet(); render(true);
+        save(); migrateSingle(); assignColors(); closeSheet(); render(true);
       };
     }catch(e){
       openSheet(`
@@ -961,12 +986,15 @@ function mergeStates(a, b){
   [].concat(a.labels, b.labels).forEach(l=>{
     const ex = labels.find(x=>x.id===l.id);
     if(ex){
-      if((l.updatedAt||0) > (ex.updatedAt||0)){ ex.name = l.name; ex.updatedAt = l.updatedAt||0; }
+      if((l.updatedAt||0) > (ex.updatedAt||0)){
+        ex.name = l.name; ex.updatedAt = l.updatedAt||0;
+        if(l.color) ex.color = l.color;
+      }else if(!ex.color && l.color){ ex.color = l.color; }
       return;
     }
     const byName = labels.find(x=>x.name===l.name);
-    if(byName){ remap[l.id] = byName.id; return; }
-    labels.push({id:l.id, name:l.name, updatedAt:l.updatedAt||0});
+    if(byName){ remap[l.id] = byName.id; if(!byName.color && l.color) byName.color = l.color; return; }
+    labels.push({id:l.id, name:l.name, updatedAt:l.updatedAt||0, color:l.color});
   });
 
   /* 메모: id로 병합, 더 최근에 편집한 쪽 유지 */
@@ -1008,7 +1036,7 @@ function mergeStates(a, b){
 function sig(s){
   normDeleted(s);
   return JSON.stringify({
-    l: s.labels.map(x=>x.id+":"+x.name).sort(),
+    l: s.labels.map(x=>x.id+":"+x.name+":"+(x.color||"")).sort(),
     m: s.memos.map(x=>JSON.stringify([x.id, x.labelId||null,
          x.items.map(i=>[i.id, i.text, i.done?1:0, i.checkedAt||0, i.result||""])])).sort(),
     dl: Object.keys(s.deleted.labels).sort().map(k=>k+":"+s.deleted.labels[k]).join(","),
@@ -1060,11 +1088,13 @@ async function pullRemote(){
     state = merged;
     save({noPush:true, keepStamp:true});
     migrateSingle();
+    assignColors();
     render(true);
   }else{
     state = merged;
     save({noPush:true, keepStamp:true});
     migrateSingle();
+    assignColors();
   }
   if(remoteChanged){
     schedulePush(400);
@@ -1240,6 +1270,7 @@ function migrateSingle(){
 
 save({noPush:true, keepStamp:true});
 migrateSingle();
+assignColors();
 dailySnapshot();
 render();
 if(syncCfg && syncCfg.gistId){
