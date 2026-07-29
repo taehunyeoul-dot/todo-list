@@ -300,15 +300,15 @@ function uid(){ return Date.now().toString(36) + Math.random().toString(36).slic
 function load(){
   try{
     const d = JSON.parse(localStorage.getItem(KEY));
-    if(d && Array.isArray(d.labels) && Array.isArray(d.memos)) return d;
+    if(d && Array.isArray(d.labels) && Array.isArray(d.memos)) return normDeleted(d);
   }catch(e){}
   return {
     labels:[ {id:uid(),name:"거래처"}, {id:uid(),name:"유튜브"}, {id:uid(),name:"대시보드"} ],
-    memos:[], savedAt:0
+    memos:[], savedAt:0, deleted:{labels:{}, memos:{}}
   };
 }
 function save(opts){
-  state.savedAt = Date.now();
+  if(!(opts && opts.keepStamp)) state.savedAt = Date.now();
   localStorage.setItem(KEY, JSON.stringify(state));
   if(!(opts && opts.noPush)) schedulePush();
 }
@@ -362,6 +362,8 @@ function cleanupMemo(id){
   if(!m) return;
   const hasContent = m.items.some(i=> i.text.trim() || (i.result||"").trim());
   if(!hasContent){
+    normDeleted(state);
+    state.deleted.memos[id] = Date.now();
     state.memos = state.memos.filter(x=>x.id!==id);
     save();
   }
@@ -576,6 +578,8 @@ function askDeleteMemo(){
     </div>`);
 }
 function deleteMemo(){
+  normDeleted(state);
+  state.deleted.memos[currentId] = Date.now();
   state.memos = state.memos.filter(m=>m.id!==currentId);
   save();
   closeSheet();
@@ -634,13 +638,13 @@ function pickLabel(id){
 }
 function renameLabel(id, name){
   const l = state.labels.find(x=>x.id===id);
-  if(l){ l.name = name.slice(0,8); save(); }
+  if(l){ l.name = name.slice(0,8); l.updatedAt = Date.now(); save(); }
 }
 function addLabel(){
   const inp = document.getElementById("newLabelInput");
   const name = inp.value.trim().slice(0,8);
   if(!name){ inp.focus(); return; }
-  state.labels.push({id:uid(), name});
+  state.labels.push({id:uid(), name, updatedAt:Date.now()});
   save();
   renderLabelSheet();
   const again = document.getElementById("newLabelInput");
@@ -659,6 +663,8 @@ function askDeleteLabel(id){
     </div>`);
 }
 function deleteLabel(id){
+  normDeleted(state);
+  state.deleted.labels[id] = Date.now();
   state.labels = state.labels.filter(l=>l.id!==id);
   state.memos.forEach(m=>{ if(m.labelId===id) m.labelId=null; });
   if(filterLabel===id) filterLabel="all";
@@ -840,7 +846,12 @@ function askRestoreSnap(key){
       <button class="btn danger" id="restoreGo">복원</button>
     </div>`);
   document.getElementById("restoreGo").onclick = ()=>{
-    state = snap.data;
+    state = normDeleted(snap.data);
+    /* 복원본이 병합에서 밀리지 않도록 전부 '방금 편집한 것'으로 표시 */
+    const now = Date.now();
+    state.labels.forEach(l=>l.updatedAt = now);
+    state.memos.forEach(m=>m.updatedAt = now);
+    state.deleted = {labels:{}, memos:{}};
     save();
     closeSheet();
     render(true);
@@ -871,7 +882,12 @@ function importData(inp){
           <button class="btn danger" id="importGo">교체</button>
         </div>`);
       document.getElementById("importGo").onclick = ()=>{
-        state = d; save(); closeSheet(); render(true);
+        state = normDeleted(d);
+        const now = Date.now();
+        state.labels.forEach(l=>l.updatedAt = now);
+        state.memos.forEach(m=>m.updatedAt = now);
+        state.deleted = {labels:{}, memos:{}};
+        save(); closeSheet(); render(true);
       };
     }catch(e){
       openSheet(`
@@ -941,6 +957,89 @@ function syncErrShort(e){
   return "오프라인 — 연결되면 자동 동기화됩니다";
 }
 
+/* ---------- 병합 동기화 ----------
+   기기 간 데이터를 통째로 교체하지 않고 합친다.
+   - 라벨·메모는 합집합, 같은 항목은 더 최근에 편집한 쪽 유지
+   - 삭제 기록(deleted)을 함께 동기화해, 한쪽에서 지운 것이 다른 쪽에서 되살아나지 않게 함
+   - 빈 기기가 데이터 있는 기기를 덮어쓰는 일이 구조적으로 불가능 */
+function normDeleted(s){
+  if(!s.deleted || typeof s.deleted !== "object") s.deleted = {labels:{}, memos:{}};
+  if(!s.deleted.labels) s.deleted.labels = {};
+  if(!s.deleted.memos) s.deleted.memos = {};
+  return s;
+}
+function mergeStates(a, b){
+  normDeleted(a); normDeleted(b);
+  const deleted = {labels:{}, memos:{}};
+  ["labels","memos"].forEach(t=>{
+    [a.deleted[t], b.deleted[t]].forEach(src=>{
+      Object.keys(src).forEach(id=>{
+        deleted[t][id] = Math.max(deleted[t][id]||0, src[id]||0);
+      });
+    });
+  });
+
+  /* 라벨: id로 병합(최근 이름 우선), 같은 이름의 다른 id는 하나로 통합 */
+  const labels = [];
+  const remap = {};
+  [].concat(a.labels, b.labels).forEach(l=>{
+    const ex = labels.find(x=>x.id===l.id);
+    if(ex){
+      if((l.updatedAt||0) > (ex.updatedAt||0)){ ex.name = l.name; ex.updatedAt = l.updatedAt||0; }
+      return;
+    }
+    const byName = labels.find(x=>x.name===l.name);
+    if(byName){ remap[l.id] = byName.id; return; }
+    labels.push({id:l.id, name:l.name, updatedAt:l.updatedAt||0});
+  });
+
+  /* 메모: id로 병합, 더 최근에 편집한 쪽 유지 */
+  const byId = {};
+  [].concat(a.memos, b.memos).forEach(m=>{
+    const ex = byId[m.id];
+    if(!ex || (m.updatedAt||0) > (ex.updatedAt||0)) byId[m.id] = m;
+  });
+
+  /* 삭제 기록 적용: 삭제 시각이 마지막 편집보다 나중이면 제거,
+     그 후에 다시 편집된 항목은 되살리고 삭제 기록을 해제 */
+  const finalLabels = labels.filter(l=>{
+    const dts = deleted.labels[l.id];
+    if(dts && dts > (l.updatedAt||0)) return false;
+    if(dts) delete deleted.labels[l.id];
+    return true;
+  });
+  const memos = [];
+  Object.keys(byId).forEach(k=>{
+    const m = byId[k];
+    const dts = deleted.memos[m.id];
+    if(dts && dts > (m.updatedAt||0)) return;
+    if(dts) delete deleted.memos[m.id];
+    if(m.labelId && remap[m.labelId]) m.labelId = remap[m.labelId];
+    if(m.labelId && !finalLabels.some(l=>l.id===m.labelId)) m.labelId = null;
+    memos.push(m);
+  });
+  memos.sort((x,y)=>(x.createdAt||0)-(y.createdAt||0));
+
+  /* 90일 지난 삭제 기록은 정리 */
+  const cutoff = Date.now() - 90*24*3600*1000;
+  ["labels","memos"].forEach(t=>{
+    Object.keys(deleted[t]).forEach(id=>{ if(deleted[t][id] < cutoff) delete deleted[t][id]; });
+  });
+
+  return {labels:finalLabels, memos:memos, deleted:deleted,
+          savedAt: Math.max(a.savedAt||0, b.savedAt||0)};
+}
+function sig(s){
+  normDeleted(s);
+  return JSON.stringify({
+    l: s.labels.map(x=>x.id+":"+x.name).sort(),
+    m: s.memos.map(x=>JSON.stringify([x.id, x.labelId||null,
+         x.items.map(i=>[i.id, i.text, i.done?1:0, i.checkedAt||0, i.result||""])])).sort(),
+    dl: Object.keys(s.deleted.labels).sort().map(k=>k+":"+s.deleted.labels[k]).join(","),
+    dm: Object.keys(s.deleted.memos).sort().map(k=>k+":"+s.deleted.memos[k]).join(",")
+  });
+}
+
 async function connectSync(token){
   syncCfg = {token: token};
   const gists = await gh("/gists?per_page=100");
@@ -973,14 +1072,23 @@ async function pullRemote(){
   let remote = null;
   try{ remote = JSON.parse(text); }catch(e){}
   if(!remote || !Array.isArray(remote.memos) || !Array.isArray(remote.labels)) return;
-  const ls = state.savedAt||0, rs = remote.savedAt||0;
-  if(rs > ls){
-    try{ localStorage.setItem(SNAP+"교체전"+Date.now(), JSON.stringify({at:Date.now(), data:state})); }catch(e){}
+
+  const merged = mergeStates(state, remote);
+  const localChanged  = sig(merged) !== sig(state);
+  const remoteChanged = sig(merged) !== sig(remote);
+
+  if(localChanged){
+    /* 병합으로 이 기기 화면이 달라질 때만, 이전 상태를 스냅샷으로 남김 */
+    try{ localStorage.setItem(SNAP+"병합전"+Date.now(), JSON.stringify({at:Date.now(), data:state})); }catch(e){}
     pruneSnaps();
-    state = remote;
-    save({noPush:true});
+    state = merged;
+    save({noPush:true, keepStamp:true});
     render(true);
-  }else if(ls > rs){
+  }else{
+    state = merged;
+    save({noPush:true, keepStamp:true});
+  }
+  if(remoteChanged){
     schedulePush(400);
   }
   syncCfg.lastPullAt = Date.now();
@@ -1122,7 +1230,7 @@ if("serviceWorker" in navigator){
 }
 
 /* ---------- 시작 ---------- */
-save({noPush:true});
+save({noPush:true, keepStamp:true});
 dailySnapshot();
 render();
 if(syncCfg && syncCfg.gistId){
