@@ -151,10 +151,18 @@
     border-radius:11px;padding:11px 14px;margin-bottom:14px;
   }
   .search::placeholder{color:var(--sub);opacity:.7;}
-  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;}
+  .chips{
+    display:flex;flex-wrap:nowrap;gap:8px;margin-bottom:16px;
+    overflow-x:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;
+    padding-bottom:6px;
+  }
+  .chips::-webkit-scrollbar{height:4px;}
+  .chips::-webkit-scrollbar-track{background:transparent;}
+  .chips::-webkit-scrollbar-thumb{background:var(--line);border-radius:2px;}
   .chip{
     font-size:14px;color:var(--sub);border:1px solid var(--line);
     padding:7px 14px;border-radius:999px;background:transparent;letter-spacing:-.1px;
+    flex-shrink:0;white-space:nowrap;
   }
   .chip.on{color:var(--accent);border-color:var(--accent);background:var(--accent-soft);font-weight:600;}
 
