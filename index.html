@@ -506,13 +506,6 @@ function itemNode(memo, it){
   ta.value = it.text;
   ta.placeholder = "할 일";
   ta.oninput = ()=>{ it.text = ta.value; grow(ta); touch(memo); };
-  ta.onkeydown = (e)=>{
-    if(e.key === "Enter"){
-      e.preventDefault();
-      const r = row.querySelector(".item-result");
-      if(r) r.focus();
-    }
-  };
   body.appendChild(ta);
 
   if(it.done && it.checkedAt){
@@ -528,7 +521,6 @@ function itemNode(memo, it){
   res.value = it.result || "";
   res.placeholder = "처리 결과";
   res.oninput = ()=>{ it.result = res.value; grow(res); touch(memo); };
-  res.onkeydown = (e)=>{ if(e.key === "Enter"){ e.preventDefault(); res.blur(); } };
   body.appendChild(res);
 
   row.appendChild(chk);

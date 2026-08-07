@@ -1,5 +1,5 @@
 /* 오프라인 지원 서비스 워커 — stale-while-revalidate */
-const CACHE = "todo-app-v13";
+const CACHE = "todo-app-v14";
 const ASSETS = [
   "./",
   "./index.html",
