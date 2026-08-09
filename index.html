@@ -228,12 +228,17 @@
   .sheet-foot button{font-size:16px;color:var(--accent);font-weight:600;padding:6px 2px;}
   .sheet-foot .quiet{color:var(--sub);font-weight:500;}
 
-  .label-edit-row{display:flex;align-items:center;gap:10px;padding:7px 0;}
+  .label-edit-row{display:flex;align-items:center;gap:8px;padding:7px 0;}
   .label-edit-row input,.label-add-row input,.token-input{
     flex:1;font-size:16px;background:var(--field);border:none;outline:none;
     border-radius:9px;padding:10px 12px;min-width:0;
   }
   .label-edit-row .rm{font-size:14px;color:var(--danger);flex-shrink:0;padding:8px 2px;}
+  .order-btn{
+    width:24px;height:24px;flex-shrink:0;border-radius:7px;background:var(--field);
+    font-size:11px;display:flex;align-items:center;justify-content:center;
+  }
+  .order-btn:disabled{opacity:.3;}
   .label-add-row{display:flex;align-items:center;gap:10px;padding:10px 0 2px;}
   .label-add-row .go{font-size:15px;color:var(--accent);font-weight:600;flex-shrink:0;}
 
@@ -294,6 +299,7 @@ let state = load();
 let searchQ = "";
 let filterLabel = "all";
 let showHidden = false;
+let showHiddenLabels = false;
 
 /* 라벨 자동 색상 — 밝은/어두운 배경 모두에서 읽히는 8색 */
 const LABEL_COLORS = ["#3B82D6","#199C87","#D08A2B","#9A6AD8","#D2497E","#7BA43B","#D05A50","#5E93B8"];
@@ -311,6 +317,32 @@ function assignColors(){
   });
   if(changed) save({keepStamp:true});
   return changed;
+}
+
+/* 라벨 순서 — order 필드로 관리해 모든 기기에서 같은 순서로 보이게 함 */
+function sortedLabels(){
+  return state.labels.slice().sort((a,b)=>(a.order||0)-(b.order||0));
+}
+function assignOrder(){
+  let changed = false;
+  let next = state.labels.reduce((m,l)=> l.order!=null ? Math.max(m, l.order+1) : m, 0);
+  state.labels.forEach(l=>{
+    if(l.order==null){ l.order = next++; changed = true; }
+  });
+  if(changed) save({keepStamp:true});
+  return changed;
+}
+function moveLabel(id, dir){
+  const sorted = sortedLabels();
+  const idx = sorted.findIndex(l=>l.id===id);
+  const swapIdx = idx + dir;
+  if(idx<0 || swapIdx<0 || swapIdx>=sorted.length) return;
+  const a = sorted[idx], b = sorted[swapIdx];
+  const tmp = a.order; a.order = b.order; b.order = tmp;
+  const now = Date.now();
+  a.updatedAt = now; b.updatedAt = now;
+  save();
+  renderLabelSheet();
 }
 
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
@@ -583,7 +615,7 @@ function deleteMemo(){
 function renderEditorChips(memo){
   const box = document.getElementById("editorChips");
   if(!box) return;
-  box.innerHTML = state.labels.map(l=>{
+  box.innerHTML = sortedLabels().map(l=>{
     const on = memo.labelId===l.id;
     const st = on ? ` style="color:${l.color};border-color:${l.color};background:${l.color}1A;font-weight:600"` : "";
     return `<button class="chip${on?" on":""}"${st} onclick="pickEditorLabel('${l.id}')">`+
@@ -601,16 +633,19 @@ function pickEditorLabel(id){
 
 function openLabelSheet(){ renderLabelSheet(); }
 function renderLabelSheet(){
-  const rows = state.labels.map(l=>`
+  const sorted = sortedLabels();
+  const rows = sorted.map((l,i)=>`
     <div class="label-edit-row">
       <span class="cdot" style="background:${l.color}"></span>
       <input type="text" maxlength="8" value="${esc(l.name)}"
              oninput="renameLabel('${l.id}', this.value)">
+      <button class="order-btn" ${i===0?"disabled":""} onclick="moveLabel('${l.id}',-1)" aria-label="위로 이동">▲</button>
+      <button class="order-btn" ${i===sorted.length-1?"disabled":""} onclick="moveLabel('${l.id}',1)" aria-label="아래로 이동">▼</button>
       <button class="rm" onclick="askDeleteLabel('${l.id}')">삭제</button>
     </div>`).join("");
   openSheet(`
     <h2>라벨 편집</h2>
-    <div class="desc">이름을 고치거나(8자 이내), 추가·삭제할 수 있습니다. 색은 자동으로 지정됩니다.</div>
+    <div class="desc">이름을 고치거나(8자 이내), 추가·삭제·순서 변경(▲▼)을 할 수 있습니다. 순서는 모든 기기에서 동일하게 보입니다. 색은 자동으로 지정됩니다.</div>
     ${rows || `<div class="desc">라벨이 없습니다. 아래에서 추가하세요.</div>`}
     <div class="label-add-row">
       <input type="text" id="newLabelInput" maxlength="8" placeholder="새 라벨 (8자 이내)"
@@ -633,7 +668,8 @@ function addLabel(){
   const inp = document.getElementById("newLabelInput");
   const name = inp.value.trim().slice(0,8);
   if(!name){ inp.focus(); return; }
-  state.labels.push({id:uid(), name, updatedAt:Date.now(), color:nextLabelColor()});
+  const maxOrder = state.labels.reduce((m,l)=>Math.max(m, l.order||0), -1);
+  state.labels.push({id:uid(), name, updatedAt:Date.now(), color:nextLabelColor(), order:maxOrder+1});
   save();
   renderLabelSheet();
   const again = document.getElementById("newLabelInput");
@@ -675,6 +711,7 @@ function renderFind(){
       <input class="search" type="search" placeholder="단어로 검색" value="${esc(searchQ)}"
              oninput="onSearch(this.value)">
       <div id="chips" class="chips"></div>
+      <div id="hiddenLabelsToggle"></div>
       <div id="findResults"></div>
     </div>`;
   renderChips();
@@ -683,18 +720,36 @@ function renderFind(){
 function onSearch(v){ searchQ = v; renderResults(); }
 function setFilter(id){ filterLabel = id; renderChips(); renderResults(); }
 
+/* 라벨에 딸린 할 일이 있고 전부 완료된 경우 '완료된 라벨' */
+function isLabelDone(l){
+  const memos = state.memos.filter(m=>m.labelId===l.id);
+  return memos.length>0 && memos.every(isDoneMemo);
+}
+function toggleHiddenLabels(){ showHiddenLabels = !showHiddenLabels; renderChips(); }
+
 function renderChips(){
   const box = document.getElementById("chips");
   if(!box) return;
+  const sorted = sortedLabels();
+  const hiddenLabels = sorted.filter(l=> isLabelDone(l) && filterLabel!==l.id);
+  const visibleLabels = sorted.filter(l=> showHiddenLabels || !isLabelDone(l) || filterLabel===l.id);
   box.innerHTML =
     `<button class="chip ${filterLabel==="all"?"on":""}" onclick="setFilter('all')">전체</button>` +
     `<button class="chip ${filterLabel==="none"?"on":""}" onclick="setFilter('none')">미분류</button>` +
-    state.labels.map(l=>{
+    visibleLabels.map(l=>{
       const on = filterLabel===l.id;
       const st = on ? ` style="color:${l.color};border-color:${l.color};background:${l.color}1A;font-weight:600"` : "";
       return `<button class="chip${on?" on":""}"${st} onclick="setFilter('${l.id}')">`+
              `<span class="cdot" style="background:${l.color}"></span>${esc(l.name)}</button>`;
-    }).join("");
+    }).join("") +
+    `<button class="chip" onclick="openLabelSheet()">라벨 편집</button>`;
+  const tbox = document.getElementById("hiddenLabelsToggle");
+  if(tbox){
+    tbox.innerHTML = hiddenLabels.length
+      ? `<button class="reveal-btn" onclick="toggleHiddenLabels()">${showHiddenLabels
+          ? "숨긴 라벨 가리기" : "숨긴 라벨 "+hiddenLabels.length+"개 보기"}</button>`
+      : "";
+  }
 }
 
 function memoMatches(m, q){
@@ -850,6 +905,7 @@ function askRestoreSnap(key){
     save();
     migrateSingle();
     assignColors();
+    assignOrder();
     closeSheet();
     render(true);
   };
@@ -884,7 +940,7 @@ function importData(inp){
         state.labels.forEach(l=>l.updatedAt = now);
         state.memos.forEach(m=>m.updatedAt = now);
         state.deleted = {labels:{}, memos:{}};
-        save(); migrateSingle(); assignColors(); closeSheet(); render(true);
+        save(); migrateSingle(); assignColors(); assignOrder(); closeSheet(); render(true);
       };
     }catch(e){
       openSheet(`
@@ -1000,12 +1056,21 @@ function mergeStates(a, b){
       if((l.updatedAt||0) > (ex.updatedAt||0)){
         ex.name = l.name; ex.updatedAt = l.updatedAt||0;
         if(l.color) ex.color = l.color;
-      }else if(!ex.color && l.color){ ex.color = l.color; }
+        if(l.order!=null) ex.order = l.order;
+      }else{
+        if(!ex.color && l.color) ex.color = l.color;
+        if(ex.order==null && l.order!=null) ex.order = l.order;
+      }
       return;
     }
     const byName = labels.find(x=>x.name===l.name);
-    if(byName){ remap[l.id] = byName.id; if(!byName.color && l.color) byName.color = l.color; return; }
-    labels.push({id:l.id, name:l.name, updatedAt:l.updatedAt||0, color:l.color});
+    if(byName){
+      remap[l.id] = byName.id;
+      if(!byName.color && l.color) byName.color = l.color;
+      if(byName.order==null && l.order!=null) byName.order = l.order;
+      return;
+    }
+    labels.push({id:l.id, name:l.name, updatedAt:l.updatedAt||0, color:l.color, order:l.order});
   });
 
   /* 메모: id로 병합, 더 최근에 편집한 쪽 유지 */
@@ -1047,7 +1112,7 @@ function mergeStates(a, b){
 function sig(s){
   normDeleted(s);
   return JSON.stringify({
-    l: s.labels.map(x=>x.id+":"+x.name+":"+(x.color||"")).sort(),
+    l: s.labels.map(x=>x.id+":"+x.name+":"+(x.color||"")+":"+(x.order==null?"":x.order)).sort(),
     m: s.memos.map(x=>JSON.stringify([x.id, x.labelId||null,
          x.items.map(i=>[i.id, i.text, i.done?1:0, i.checkedAt||0, i.result||""])])).sort(),
     dl: Object.keys(s.deleted.labels).sort().map(k=>k+":"+s.deleted.labels[k]).join(","),
@@ -1157,12 +1222,14 @@ async function pullRemote(){
     save({noPush:true, keepStamp:true});
     migrateSingle();
     assignColors();
+    assignOrder();
     render(true);
   }else{
     state = merged;
     save({noPush:true, keepStamp:true});
     migrateSingle();
     assignColors();
+    assignOrder();
   }
   if(remoteChanged){
     schedulePush(400);
@@ -1347,6 +1414,7 @@ function migrateSingle(){
 save({noPush:true, keepStamp:true});
 migrateSingle();
 assignColors();
+assignOrder();
 dailySnapshot();
 render();
 if(syncCfg && syncCfg.gistId){
