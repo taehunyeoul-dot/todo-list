@@ -968,14 +968,15 @@ function openVault(){
     let at = 0;
     try{ at = (JSON.parse(localStorage.getItem(k))||{}).at || 0; }catch(e){}
     return `<div class="snap-row">
-      <span class="t">${fmtTime(at) || "저장본"}<small>자동 스냅샷</small></span>
-      <button class="go" onclick="askRestoreSnap('${k}')">복원</button>
+      <span class="t">${fmtTime(at) || "저장본"}<small>${lostInSnap(k).length
+        ? "지금 없는 메모 "+lostInSnap(k).length+"개 있음" : "자동 스냅샷"}</small></span>
+      <button class="go" onclick="openSnapBrowse('${k}')">살펴보기</button>
     </div>`;
   }).join("");
   openSheet(`
     <h2>데이터 보관</h2>
     <div class="desc">메모는 이 기기에 즉시 저장되고, 하루 1회 자동 스냅샷(최근 7일)이 함께 보관됩니다.
-    파일 백업이나 <b>동기화</b>를 켜 두면 기기를 잃어도 복구할 수 있습니다.</div>
+    사라진 메모가 있으면 아래 스냅샷을 <b>살펴보기</b>로 열어 하나씩 되살릴 수 있습니다.</div>
     <div class="tool-list">
       <button class="tool-btn" onclick="exportData()">백업 파일 내려받기</button>
       <button class="tool-btn" onclick="document.getElementById('importFile').click()">백업 파일 불러오기</button>
@@ -986,6 +987,73 @@ function openVault(){
       <button class="btn primary" onclick="closeSheet()">닫기</button>
     </div>`);
 }
+
+/* 스냅샷에는 내용이 있는데 지금은 없는(또는 내용이 줄어든) 메모를 찾아낸다 */
+function lostInSnap(key){
+  let snap = null;
+  try{ snap = JSON.parse(localStorage.getItem(key)); }catch(e){}
+  if(!snap || !snap.data || !Array.isArray(snap.data.memos)) return [];
+  const now = {};
+  state.memos.forEach(m=>{
+    now[m.id] = (m.items||[]).map(i=>(i.text||"")+(i.result||"")).join("").trim();
+  });
+  return snap.data.memos.filter(m=>{
+    const body = (m.items||[]).map(i=>(i.text||"")+(i.result||"")).join("").trim();
+    if(!body) return false;                  /* 스냅샷에서도 비어 있으면 볼 것 없음 */
+    const cur = now[m.id];
+    if(cur === undefined) return true;       /* 지금은 아예 없는 메모 */
+    return cur.length < body.length;         /* 지금은 내용이 줄어든 메모 */
+  });
+}
+
+function openSnapBrowse(key){
+  let snap = null;
+  try{ snap = JSON.parse(localStorage.getItem(key)); }catch(e){}
+  if(!snap || !snap.data) return;
+  const lost = lostInSnap(key).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const rows = lost.map(m=>{
+    const it = (m.items||[])[0] || {text:"", result:""};
+    const body = (it.text||"").trim() || (it.result||"").trim();
+    return `<div class="snap-row">
+      <span class="t">${esc(body.slice(0,60))}${body.length>60?"…":""}
+        <small>${fmtTime(m.createdAt)} 작성</small></span>
+      <button class="go" onclick="recoverMemo('${key}','${m.id}')">되살리기</button>
+    </div>`;
+  }).join("");
+  openSheet(`
+    <h2>${fmtTime(snap.at)} 저장본</h2>
+    <div class="desc">${lost.length
+      ? "이 저장본에는 있는데 <b>지금은 없는 메모</b>입니다. 하나씩 되살릴 수 있고, 지금 있는 메모는 그대로 유지됩니다."
+      : "이 저장본에는 지금 없는 메모가 없습니다. 되살릴 것이 없습니다."}</div>
+    ${rows}
+    <div class="sheet-foot">
+      <button class="quiet" onclick="askRestoreSnap('${key}')">이 시점 전체로 되돌리기</button>
+      <span></span>
+    </div>
+    <div class="sheet-actions">
+      <button class="btn plain" onclick="openVault()">뒤로</button>
+      <button class="btn primary" onclick="closeSheet()">닫기</button>
+    </div>`);
+}
+
+/* 스냅샷의 메모 하나만 되살린다 (다른 메모는 건드리지 않음) */
+function recoverMemo(key, id){
+  let snap = null;
+  try{ snap = JSON.parse(localStorage.getItem(key)); }catch(e){}
+  if(!snap || !snap.data) return;
+  const src = (snap.data.memos||[]).find(m=>m.id===id);
+  if(!src) return;
+  normDeleted(state);
+  delete state.deleted.memos[id];      /* 삭제 기록을 지워야 동기화로 다시 사라지지 않음 */
+  const copy = JSON.parse(JSON.stringify(src));
+  copy.updatedAt = Date.now();         /* 병합에서 이기도록 방금 편집한 것으로 표시 */
+  if(copy.labelId && !state.labels.some(l=>l.id===copy.labelId)) copy.labelId = null;
+  const idx = state.memos.findIndex(m=>m.id===id);
+  if(idx >= 0) state.memos[idx] = copy; else state.memos.push(copy);
+  save();
+  openSnapBrowse(key);
+}
+
 function dailySnapshot(){
   const d = new Date();
   const k = SNAP + d.getFullYear() + pad2(d.getMonth()+1) + pad2(d.getDate());
@@ -1008,11 +1076,12 @@ function askRestoreSnap(key){
   try{ snap = JSON.parse(localStorage.getItem(key)); }catch(e){}
   if(!snap || !snap.data){ return; }
   openSheet(`
-    <h2>스냅샷 복원</h2>
-    <div class="desc">현재 데이터를 <b>${fmtTime(snap.at)}</b> 시점의 스냅샷으로 되돌립니다.</div>
+    <h2>전체 되돌리기</h2>
+    <div class="desc">현재 데이터를 통째로 <b>${fmtTime(snap.at)}</b> 시점으로 되돌립니다.
+    그 이후에 쓰신 메모는 사라집니다. 메모 하나만 되살리려면 <b>살펴보기</b>에서 되살리기를 쓰세요.</div>
     <div class="sheet-actions">
-      <button class="btn plain" onclick="openVault()">취소</button>
-      <button class="btn danger" id="restoreGo">복원</button>
+      <button class="btn plain" onclick="openSnapBrowse('${key}')">취소</button>
+      <button class="btn danger" id="restoreGo">되돌리기</button>
     </div>`);
   document.getElementById("restoreGo").onclick = ()=>{
     state = normDeleted(snap.data);
