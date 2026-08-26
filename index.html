@@ -408,6 +408,11 @@ window.addEventListener("hashchange", ()=>{
 function cleanupMemo(id){
   const m = state.memos.find(x=>x.id===id);
   if(!m) return;
+  /* 지우기 전에, 화면에 아직 남아 있는 입력칸의 값을 한 번 더 확인한다 */
+  const row = document.querySelector(".item");
+  if(row && typeof row._syncItem === "function"){
+    try{ row._syncItem(); }catch(e){}
+  }
   const hasContent = m.items.some(i=> i.text.trim() || (i.result||"").trim());
   if(!hasContent){
     normDeleted(state);
@@ -418,6 +423,8 @@ function cleanupMemo(id){
 }
 
 const app = document.getElementById("app");
+/* 지금 메모 편집 화면에 있는지 — 입력 중 화면을 다시 그리지 않기 위한 판단 */
+function isEditing(){ return route().view === "edit"; }
 function render(force){
   const r = route();
   const key = r.view + (r.id||"");
@@ -553,6 +560,18 @@ function itemNode(memo, it){
   res.placeholder = "처리 결과";
   res.oninput = ()=>{ it.result = res.value; grow(res); touch(memo); };
   body.appendChild(res);
+
+  /* 안전장치: 입력칸을 벗어날 때 화면에 보이는 값을 한 번 더 저장한다.
+     한글 조합 중이거나 입력 이벤트가 누락되는 상황에서도 글자가 사라지지 않게 함 */
+  const sync = ()=>{
+    let changed = false;
+    if(it.text !== ta.value){ it.text = ta.value; changed = true; }
+    if((it.result||"") !== res.value){ it.result = res.value; changed = true; }
+    if(changed) touch(memo);
+  };
+  ta.onblur = sync;
+  res.onblur = sync;
+  row._syncItem = sync;
 
   row.appendChild(chk);
   row.appendChild(body);
@@ -751,7 +770,13 @@ function commitLabelOrder(box){
 
 function closeLabelSheet(){
   closeSheet();
-  render(true);
+  /* 편집 중이면 라벨 줄만 갱신 — 화면 전체를 다시 그리면 입력 중이던 글자가 끊긴다 */
+  if(isEditing()){
+    const memo = currentMemo();
+    if(memo) renderEditorChips(memo);
+  }else{
+    render(true);
+  }
 }
 function addLabel(){
   const inp = document.getElementById("newLabelInput");
@@ -1320,7 +1345,9 @@ async function pullRemote(){
     migrateSingle();
     assignColors();
     assignOrder();
-    render(true);
+    /* 메모를 쓰고 있는 중이면 화면을 다시 그리지 않는다.
+       (다시 그리면 입력칸이 새로 만들어져 키보드 포커스와 조합 중인 글자가 날아간다) */
+    if(!isEditing()) render(true);
   }else{
     state = merged;
     save({noPush:true, keepStamp:true});
