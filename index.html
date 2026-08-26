@@ -1084,18 +1084,24 @@ function askRestoreSnap(key){
       <button class="btn danger" id="restoreGo">되돌리기</button>
     </div>`);
   document.getElementById("restoreGo").onclick = ()=>{
+    /* 되돌리기 직전 상태를 먼저 스냅샷으로 남긴다 — 언제든 취소 가능하게 */
+    try{ localStorage.setItem(SNAP+"복원전"+Date.now(), JSON.stringify({at:Date.now(), data:state})); }catch(e){}
+    pruneSnaps();
     state = normDeleted(snap.data);
     /* 복원본이 병합에서 밀리지 않도록 전부 '방금 편집한 것'으로 표시 */
     const now = Date.now();
     state.labels.forEach(l=>l.updatedAt = now);
     state.memos.forEach(m=>m.updatedAt = now);
     state.deleted = {labels:{}, memos:{}};
-    save();
+    save({noPush:true});
     migrateSingle();
     assignColors();
     assignOrder();
     closeSheet();
     render(true);
+    /* 클라우드를 덮어쓰지 않도록, 올리기 전에 먼저 내려받아 합친다.
+       스냅샷 이후에 쓴 메모도 클라우드에서 합쳐져 돌아온다. */
+    if(syncCfg && syncCfg.gistId){ manualSync(); }
   };
 }
 function exportData(){
