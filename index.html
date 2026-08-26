@@ -875,8 +875,9 @@ function renderResults(){
   if(filterLabel==="none") memos = memos.filter(m=>!m.labelId || !state.labels.some(l=>l.id===m.labelId));
   else if(filterLabel!=="all") memos = memos.filter(m=>m.labelId===filterLabel);
   memos = memos.filter(m=>memoMatches(m, q));
-  /* 최근에 편집한 메모가 위로 */
-  memos.sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+  /* 최근에 편집한 메모가 위로, 편집 시각이 같으면 최근에 작성한 메모가 위로 */
+  memos.sort((a,b)=>
+    ((b.updatedAt||0)-(a.updatedAt||0)) || ((b.createdAt||0)-(a.createdAt||0)));
 
   const open = memos.filter(m=>!isDoneMemo(m));
   const done = memos.filter(isDoneMemo);
