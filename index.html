@@ -633,18 +633,22 @@ function deleteMemo(){
 function renderEditorChips(memo){
   const box = document.getElementById("editorChips");
   if(!box) return;
-  box.innerHTML = sortedLabels().filter(l=> !l.hidden || memo.labelId===l.id).map(l=>{
-    const on = memo.labelId===l.id;
-    const st = on ? ` style="color:${l.color};border-color:${l.color};background:${l.color}1A;font-weight:600"` : "";
-    return `<button class="chip${on?" on":""}"${st} onclick="pickEditorLabel('${l.id}')">`+
-           `<span class="cdot" style="background:${l.color}"></span>${esc(l.name)}</button>`;
-  }).join("") +
-  `<button class="chip" onclick="openLabelSheet()">라벨 편집</button>`;
+  const none = !memo.labelId || !state.labels.some(l=>l.id===memo.labelId);
+  box.innerHTML =
+    `<button class="chip${none?" on":""}" onclick="pickEditorLabel(null)">미분류</button>` +
+    sortedLabels().filter(l=> !l.hidden || memo.labelId===l.id).map(l=>{
+      const on = memo.labelId===l.id;
+      const st = on ? ` style="color:${l.color};border-color:${l.color};background:${l.color}1A;font-weight:600"` : "";
+      return `<button class="chip${on?" on":""}"${st} onclick="pickEditorLabel('${l.id}')">`+
+             `<span class="cdot" style="background:${l.color}"></span>${esc(l.name)}</button>`;
+    }).join("") +
+    `<button class="chip" onclick="openLabelSheet()">라벨 편집</button>`;
 }
 function pickEditorLabel(id){
   const memo = currentMemo();
   if(!memo) return;
-  memo.labelId = (memo.labelId===id) ? null : id;   /* 다시 누르면 해제(미분류) */
+  /* 미분류를 누르면 라벨 해제, 같은 라벨을 다시 누르면 미분류로 */
+  memo.labelId = (!id || memo.labelId===id) ? null : id;
   touch(memo);
   renderEditorChips(memo);
 }
