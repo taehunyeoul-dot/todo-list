@@ -78,6 +78,10 @@
   .hp-title{font-size:34px;font-weight:700;letter-spacing:-.5px;}
   .hp-sub{font-size:14px;color:var(--sub);letter-spacing:-.1px;}
   .home-hr{height:1px;background:var(--line);margin:0 34px;flex-shrink:0;}
+  .home-row{flex:1;display:flex;min-height:0;}
+  .home-row .home-panel{flex:1;min-width:0;}
+  .home-row .hp-title{font-size:25px;}
+  .home-vr{width:1px;background:var(--line);margin:26px 0;flex-shrink:0;}
   .home-foot{
     display:flex;flex-direction:column;align-items:center;gap:6px;
     padding:12px 0 calc(20px + env(safe-area-inset-bottom));
@@ -193,6 +197,15 @@
     font-size:13px;color:var(--sub);margin-top:5px;
     background:var(--field);border-radius:7px;padding:5px 8px;word-break:break-word;
   }
+  .today-btn{
+    flex-shrink:0;align-self:center;margin-left:4px;
+    font-size:12px;font-weight:600;color:var(--sub);
+    border:1px solid var(--line);border-radius:999px;padding:5px 11px;
+  }
+  .today-btn.on{color:#fff;background:var(--accent);border-color:var(--accent);}
+  .trm{flex-shrink:0;align-self:center;font-size:12px;color:var(--sub);padding:6px 2px 6px 6px;}
+  .mrow .dot.tap{width:24px;height:24px;}
+  .mrow.done .dot.tap::after{left:7px;top:3.5px;width:6px;height:11px;}
   .find-empty{text-align:center;color:var(--sub);font-size:15px;line-height:1.7;padding:60px 20px;}
   .reveal-btn{
     display:block;margin:14px auto 0;font-size:14px;color:var(--sub);
@@ -391,6 +404,7 @@ function route(){
   const m = h.match(/^#\/edit\/(.+)$/);
   if(m) return {view:"edit", id:m[1]};
   if(h === "#/find") return {view:"find"};
+  if(h === "#/today") return {view:"today"};
   return {view:"home"};
 }
 let lastRoute = route();
@@ -433,6 +447,7 @@ function render(force){
   lastRoute = r;
   if(r.view==="edit") renderEdit(r.id);
   else if(r.view==="find") renderFind();
+  else if(r.view==="today") renderToday();
   else renderHome();
 }
 
@@ -443,9 +458,21 @@ function isDoneMemo(m){
   const texted = m.items.filter(i=>i.text.trim());
   return texted.length>0 && texted.every(i=>i.done);
 }
+/* 오늘할일 판별 */
+function sameDayTs(a, b){
+  const x = new Date(a), y = new Date(b);
+  return x.getFullYear()===y.getFullYear() && x.getMonth()===y.getMonth() && x.getDate()===y.getDate();
+}
+function isTodayTs(ts){ return !!ts && sameDayTs(ts, Date.now()); }
+
 function renderHome(){
   const done = state.memos.filter(isDoneMemo).length;
   const open = state.memos.length - done;
+  const todayMemos = state.memos.filter(m=>isTodayTs(m.todayAt));
+  const tDone = todayMemos.filter(isDoneMemo).length;
+  const tSub = todayMemos.length
+    ? `${todayMemos.length}개 중 ${tDone} 완료`
+    : "메모찾기에서 보내기";
   app.innerHTML = `
     <div class="home">
       <div class="home-mark">할 일 메모</div>
@@ -454,10 +481,17 @@ function renderHome(){
         <span class="hp-sub">바로 새 메모가 시작됩니다</span>
       </button>
       <div class="home-hr"></div>
-      <button class="home-panel" onclick="location.hash='#/find'">
-        <span class="hp-title">메모찾기</span>
-        <span class="hp-sub">진행 중 ${open} · 완료 ${done}</span>
-      </button>
+      <div class="home-row">
+        <button class="home-panel" onclick="location.hash='#/find'">
+          <span class="hp-title">메모찾기</span>
+          <span class="hp-sub">진행 중 ${open} · 완료 ${done}</span>
+        </button>
+        <div class="home-vr"></div>
+        <button class="home-panel" onclick="location.hash='#/today'">
+          <span class="hp-title">오늘할일</span>
+          <span class="hp-sub">${tSub}</span>
+        </button>
+      </div>
       <div class="home-foot">
         <div class="home-foot-row">
           <button onclick="openVault()">데이터 보관</button>
@@ -845,6 +879,90 @@ function renderFind(){
 function onSearch(v){ searchQ = v; renderResults(); }
 function setFilter(id){ filterLabel = id; renderChips(); renderResults(); }
 
+/* ================================================================
+   오늘할일 — 메모찾기에서 보낸 일들을 보낸 날짜별로 기록
+   ================================================================ */
+function renderToday(){
+  app.innerHTML = `
+    <div class="topbar">
+      <button class="tb-btn" onclick="history.back()"><span class="chev">‹</span> 뒤로</button>
+      <button class="tb-btn" onclick="location.replace('#/find')">메모찾기</button>
+    </div>
+    <div class="screen">
+      <div class="find-title">오늘할일</div>
+      <div id="todayList"></div>
+    </div>`;
+  renderTodayList();
+}
+function renderTodayList(){
+  const box = document.getElementById("todayList");
+  if(!box) return;
+  const sent = state.memos.filter(m=>m.todayAt);
+  if(!sent.length){
+    box.innerHTML = `<div class="find-empty">아직 보낸 일이 없습니다.<br>
+      메모찾기에서 각 메모 오른쪽의 <b>오늘</b> 버튼을 누르면 여기에 쌓입니다.</div>`;
+    return;
+  }
+  /* 보낸 날짜별로 묶고, 최근 날짜가 위로 */
+  const groups = {};
+  sent.forEach(m=>{
+    const d = new Date(m.todayAt);
+    const key = d.getFullYear()*10000 + (d.getMonth()+1)*100 + d.getDate();
+    (groups[key] = groups[key] || []).push(m);
+  });
+  const keys = Object.keys(groups).map(Number).sort((a,b)=>b-a);
+  let html = "";
+  keys.forEach(k=>{
+    const arr = groups[k];
+    const doneN = arr.filter(isDoneMemo).length;
+    const openArr = arr.filter(m=>!isDoneMemo(m))
+                       .sort((a,b)=>((b.updatedAt||0)-(a.updatedAt||0)) || ((b.createdAt||0)-(a.createdAt||0)));
+    const doneArr = arr.filter(isDoneMemo)
+                       .sort((a,b)=>((b.updatedAt||0)-(a.updatedAt||0)) || ((b.createdAt||0)-(a.createdAt||0)));
+    html += `<div class="find-section">${fmtDate(arr[0].todayAt)} 보낸 일<span class="n">${doneN}/${arr.length} 완료</span></div>`;
+    html += `<div class="group">` + openArr.concat(doneArr).map(todayRowHTML).join("") + `</div>`;
+  });
+  box.innerHTML = html;
+}
+function todayRowHTML(m){
+  const it = m.items[0] || {text:"", done:false, checkedAt:null, result:""};
+  const done = isDoneMemo(m);
+  const l = state.labels.find(x=>x.id===m.labelId);
+  const sub = [];
+  if(l) sub.push(`<span class="lb" style="color:${l.color}">${esc(l.name)}</span>`);
+  sub.push(fmtDate(m.createdAt)+" 작성");
+  if(done && it.checkedAt) sub.push(fmtDate(it.checkedAt)+" 완료");
+  const text = it.text.trim() ? esc(it.text) : `<span style="color:var(--sub)">빈 메모</span>`;
+  const dotStyle = l ? (done ? ` style="background:${l.color};border-color:${l.color}"`
+                             : ` style="border-color:${l.color}"`) : "";
+  return `<div class="mrow ${done?"done":""}">
+    <button class="dot tap"${dotStyle} onclick="toggleDoneToday('${m.id}')" aria-label="완료"></button>
+    <span class="mrow-body" onclick="location.hash='#/edit/${m.id}'">
+      <div class="mrow-text">${text}</div>
+      <div class="mrow-sub">${sub.join(" · ")}</div>
+      ${done && (it.result||"").trim() ? `<div class="mrow-result">${esc(it.result)}</div>` : ""}
+    </span>
+    <button class="trm" onclick="removeFromToday('${m.id}')">빼기</button>
+  </div>`;
+}
+/* 오늘할일 화면에서 동그라미를 눌러 바로 완료/해제 */
+function toggleDoneToday(id){
+  const m = state.memos.find(x=>x.id===id);
+  if(!m || !m.items.length) return;
+  const it = m.items[0];
+  it.done = !it.done;
+  it.checkedAt = it.done ? Date.now() : null;
+  touch(m);
+  renderTodayList();
+}
+function removeFromToday(id){
+  const m = state.memos.find(x=>x.id===id);
+  if(!m) return;
+  m.todayAt = null;
+  touch(m);
+  renderTodayList();
+}
+
 function renderChips(){
   const box = document.getElementById("chips");
   if(!box) return;
@@ -926,14 +1044,27 @@ function rowHTML(m){
   const text = it.text.trim() ? esc(it.text) : `<span style="color:var(--sub)">빈 메모</span>`;
   const dotStyle = l ? (done ? ` style="background:${l.color};border-color:${l.color}"`
                              : ` style="border-color:${l.color}"`) : "";
-  return `<button class="mrow ${done?"done":""}" onclick="location.hash='#/edit/${m.id}'">
+  const todayBtn = done ? "" :
+    `<button class="today-btn${isTodayTs(m.todayAt)?" on":""}"
+             onclick="event.stopPropagation();toggleToday('${m.id}')">오늘</button>`;
+  return `<div class="mrow ${done?"done":""}" onclick="location.hash='#/edit/${m.id}'">
     <span class="dot"${dotStyle}></span>
     <span class="mrow-body">
       <div class="mrow-text">${text}</div>
       <div class="mrow-sub">${sub.join(" · ")}</div>
       ${done && (it.result||"").trim() ? `<div class="mrow-result">${esc(it.result)}</div>` : ""}
     </span>
-  </button>`;
+    ${todayBtn}
+  </div>`;
+}
+
+/* 메모찾기에서 오늘할일로 보내기/빼기 */
+function toggleToday(id){
+  const m = state.memos.find(x=>x.id===id);
+  if(!m) return;
+  m.todayAt = isTodayTs(m.todayAt) ? null : Date.now();
+  touch(m);
+  renderResults();
 }
 
 /* ================================================================
@@ -1315,7 +1446,7 @@ function sig(s){
   return JSON.stringify({
     l: s.labels.map(x=>x.id+":"+x.name+":"+(x.color||"")+":"+
          (x.order==null?"":x.order)+":"+(x.hidden?1:0)).sort(),
-    m: s.memos.map(x=>JSON.stringify([x.id, x.labelId||null,
+    m: s.memos.map(x=>JSON.stringify([x.id, x.labelId||null, x.todayAt||0,
          x.items.map(i=>[i.id, i.text, i.done?1:0, i.checkedAt||0, i.result||""])])).sort(),
     dl: Object.keys(s.deleted.labels).sort().map(k=>k+":"+s.deleted.labels[k]).join(","),
     dm: Object.keys(s.deleted.memos).sort().map(k=>k+":"+s.deleted.memos[k]).join(",")
