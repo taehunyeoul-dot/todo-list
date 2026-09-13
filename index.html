@@ -92,6 +92,7 @@
   .home-sync{font-size:12px;color:var(--accent);min-height:15px;}
   .home-dirty{font-size:12px;color:var(--danger);text-align:center;padding:0 20px;line-height:1.5;}
   .home-dirty:empty{display:none;}
+  .home-ver{font-size:11px;color:var(--sub);opacity:.6;}
   .sync-badge{font-size:12px;color:var(--sub);white-space:nowrap;}
   .sync-badge.wait{color:var(--danger);}
   .sync-badge.ok{color:var(--accent);}
@@ -319,6 +320,7 @@
    3) 클라우드 동기화: GitHub 비공개 Gist에 자동 백업(수정 이력 포함)
    ================================================================ */
 
+const APP_VERSION = "25";   /* 배포할 때 sw.js의 CACHE 번호와 같이 올린다 */
 const KEY = "memo-todo-v2";
 const SNAP = "memo-todo-snap-";
 const SYNC_KEY = "memo-todo-sync";
@@ -540,6 +542,7 @@ function renderHome(){
         </div>
         <div class="home-sync" id="homeSyncLine">${syncCfg ? esc(syncStatus) : ""}</div>
         <div class="home-dirty" id="homeDirty"></div>
+        <div class="home-ver">버전 ${APP_VERSION}</div>
       </div>
     </div>`;
   renderSyncBadges();
@@ -1838,9 +1841,42 @@ if(window.visualViewport){
   window.visualViewport.addEventListener("scroll", adjustBar);
 }
 
-if("serviceWorker" in navigator){
-  window.addEventListener("load", ()=>{ navigator.serviceWorker.register("./sw.js").catch(()=>{}); });
+/* ---------- 앱 업데이트 ----------
+   새 버전이 배포되면 앱이 스스로 알아채고 한 번 새로고침한다.
+   메모를 쓰는 중이면 기다렸다가 편집 화면을 나갈 때 새로고침(쓰던 글은 이미 저장돼 있음). */
+let swReg = null, reloadPending = false, reloadedOnce = false;
+function applyUpdateReload(){
+  if(reloadedOnce) return;
+  if(isEditing()){ reloadPending = true; return; }
+  /* 지금 화면이 이미 서버의 최신 버전이면 새로고침하지 않는다 */
+  fetch("./", {cache:"no-store"})
+    .then(r=>r.text())
+    .then(t=>{
+      const m = t.match(/const APP_VERSION = "([^"]+)"/);
+      if(m && m[1] === APP_VERSION) return;
+      reloadedOnce = true;
+      location.reload();
+    })
+    .catch(()=>{});
 }
+if("serviceWorker" in navigator){
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener("controllerchange", ()=>{
+    /* 처음 설치될 때는 새로고침할 필요 없음 — 업데이트로 교체될 때만 */
+    if(hadController) applyUpdateReload();
+  });
+  window.addEventListener("load", ()=>{
+    navigator.serviceWorker.register("./sw.js", {updateViaCache: "none"})
+      .then(reg=>{ swReg = reg; reg.update().catch(()=>{}); })
+      .catch(()=>{});
+  });
+  document.addEventListener("visibilitychange", ()=>{
+    if(document.visibilityState==="visible" && swReg) swReg.update().catch(()=>{});
+  });
+}
+window.addEventListener("hashchange", ()=>{
+  if(reloadPending && !isEditing()){ reloadPending = false; applyUpdateReload(); }
+});
 
 /* ---------- 시작 ---------- */
 /* 예전 구조(메모 하나에 할 일 여러 개)를 할 일 1개짜리 메모들로 분리.
