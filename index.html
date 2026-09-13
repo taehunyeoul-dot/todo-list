@@ -405,8 +405,15 @@ function labelName(id){
 function hasBody(m){
   return !!m && (m.items||[]).some(i=> (i.text||"").trim() || (i.result||"").trim());
 }
-function touch(memo){
-  memo.updatedAt = Date.now();
+/* edited=true: 할 일·처리 결과 내용을 고친 경우 → 작성일을 지금으로 바꿔 목록 맨 위로.
+   오늘 보내기·완료 체크·라벨 변경 같은 상태 변경은 작성일을 건드리지 않아 자리가 그대로다. */
+function touch(memo, edited){
+  const now = Date.now();
+  memo.updatedAt = now;
+  if(edited){
+    if(!memo.firstCreatedAt) memo.firstCreatedAt = memo.createdAt;   /* 처음 만든 날짜는 따로 보관 */
+    memo.createdAt = now;
+  }
   if(hasBody(memo)) memo.everHadBody = true;
   save();
 }
@@ -614,7 +621,7 @@ function itemNode(memo, it){
   ta.rows = 1;
   ta.value = it.text;
   ta.placeholder = "할 일";
-  ta.oninput = ()=>{ it.text = ta.value; grow(ta); touch(memo); };
+  ta.oninput = ()=>{ it.text = ta.value; grow(ta); touch(memo, true); };
   body.appendChild(ta);
 
   if(it.done && it.checkedAt){
@@ -629,7 +636,7 @@ function itemNode(memo, it){
   res.rows = 1;
   res.value = it.result || "";
   res.placeholder = "처리 결과";
-  res.oninput = ()=>{ it.result = res.value; grow(res); touch(memo); };
+  res.oninput = ()=>{ it.result = res.value; grow(res); touch(memo, true); };
   body.appendChild(res);
 
   /* 안전장치: 입력칸을 벗어날 때 화면에 보이는 값을 한 번 더 저장한다.
@@ -638,7 +645,7 @@ function itemNode(memo, it){
     let changed = false;
     if(it.text !== ta.value){ it.text = ta.value; changed = true; }
     if((it.result||"") !== res.value){ it.result = res.value; changed = true; }
-    if(changed) touch(memo);
+    if(changed) touch(memo, true);
   };
   ta.onblur = sync;
   res.onblur = sync;
@@ -953,9 +960,9 @@ function renderTodayList(){
     const arr = groups[k];
     const doneN = arr.filter(isDoneMemo).length;
     const openArr = arr.filter(m=>!isDoneMemo(m))
-                       .sort((a,b)=>((b.updatedAt||0)-(a.updatedAt||0)) || ((b.createdAt||0)-(a.createdAt||0)));
+                       .sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
     const doneArr = arr.filter(isDoneMemo)
-                       .sort((a,b)=>((b.updatedAt||0)-(a.updatedAt||0)) || ((b.createdAt||0)-(a.createdAt||0)));
+                       .sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
     html += `<div class="find-section">${fmtDate(arr[0].todayAt)} 보낸 일<span class="n">${doneN}/${arr.length} 완료</span></div>`;
     html += `<div class="group">` + openArr.concat(doneArr).map(todayRowHTML).join("") + `</div>`;
   });
@@ -1034,9 +1041,8 @@ function renderResults(){
   if(filterLabel==="none") memos = memos.filter(m=>!m.labelId || !state.labels.some(l=>l.id===m.labelId));
   else if(filterLabel!=="all") memos = memos.filter(m=>m.labelId===filterLabel);
   memos = memos.filter(m=>memoMatches(m, q));
-  /* 최근에 편집한 메모가 위로, 편집 시각이 같으면 최근에 작성한 메모가 위로 */
-  memos.sort((a,b)=>
-    ((b.updatedAt||0)-(a.updatedAt||0)) || ((b.createdAt||0)-(a.createdAt||0)));
+  /* 작성일(내용을 고치면 고친 날로 바뀜) 최신순 — 오늘 보내기·체크로는 자리가 안 바뀐다 */
+  memos.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
 
   const open = memos.filter(m=>!isDoneMemo(m));
   const done = memos.filter(isDoneMemo);
