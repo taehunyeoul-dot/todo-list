@@ -90,6 +90,11 @@
   .home-foot button{font-size:13px;color:var(--sub);}
   .home-foot .sep{font-size:11px;}
   .home-sync{font-size:12px;color:var(--accent);min-height:15px;}
+  .home-dirty{font-size:12px;color:var(--danger);text-align:center;padding:0 20px;line-height:1.5;}
+  .home-dirty:empty{display:none;}
+  .sync-badge{font-size:12px;color:var(--sub);white-space:nowrap;}
+  .sync-badge.wait{color:var(--danger);}
+  .sync-badge.ok{color:var(--accent);}
 
   /* ===== 메모하기 (편집) ===== */
   .memo-meta{
@@ -396,7 +401,29 @@ function labelName(id){
   const l = state.labels.find(x=>x.id===id);
   return l ? l.name : "";
 }
-function touch(memo){ memo.updatedAt = Date.now(); save(); }
+/* 내용(할 일 또는 처리 결과)이 한 글자라도 있는 메모인지 */
+function hasBody(m){
+  return !!m && (m.items||[]).some(i=> (i.text||"").trim() || (i.result||"").trim());
+}
+function touch(memo){
+  memo.updatedAt = Date.now();
+  if(hasBody(memo)) memo.everHadBody = true;
+  save();
+}
+/* 기존 데이터 중 내용 있는 메모에 '내용이 있었던 메모' 표시 */
+function markBodies(){
+  let ch = false;
+  state.memos.forEach(m=>{ if(!m.everHadBody && hasBody(m)){ m.everHadBody = true; ch = true; } });
+  if(ch) save({noPush:true, keepStamp:true});
+}
+/* 한 번도 내용이 없던 빈 메모 껍데기는 이 기기에서 조용히 치운다 (지금 쓰고 있는 메모는 제외) */
+function pruneEmptyShells(){
+  const r = route();
+  const keepId = r.view==="edit" ? r.id : null;
+  const before = state.memos.length;
+  state.memos = state.memos.filter(m=> hasBody(m) || m.everHadBody || m.id===keepId);
+  if(state.memos.length !== before) save({noPush:true, keepStamp:true});
+}
 
 /* ---------- 라우팅 ---------- */
 function route(){
@@ -427,12 +454,18 @@ function cleanupMemo(id){
   if(row && typeof row._syncItem === "function"){
     try{ row._syncItem(); }catch(e){}
   }
-  const hasContent = m.items.some(i=> i.text.trim() || (i.result||"").trim());
-  if(!hasContent){
-    normDeleted(state);
-    state.deleted.memos[id] = Date.now();
+  if(!hasBody(m)){
     state.memos = state.memos.filter(x=>x.id!==id);
-    save();
+    if(m.everHadBody){
+      /* 내용이 있던 메모를 직접 비운 경우만 삭제 기록 — 다른 기기에서도 지워지게 */
+      normDeleted(state);
+      state.deleted.memos[id] = Date.now();
+      save();
+    }else{
+      /* 한 번도 내용이 없던 빈 메모는 삭제 기록을 남기지 않는다.
+         다른 기기에서 그 메모에 쓴 글이 이 삭제에 밀려 사라지는 일을 막기 위함 */
+      save({noPush:true, keepStamp:true});
+    }
   }
 }
 
@@ -499,14 +532,16 @@ function renderHome(){
           <button onclick="openSyncSheet()">동기화</button>
         </div>
         <div class="home-sync" id="homeSyncLine">${syncCfg ? esc(syncStatus) : ""}</div>
+        <div class="home-dirty" id="homeDirty"></div>
       </div>
     </div>`;
+  renderSyncBadges();
 }
 function startNewMemo(labelId){
   const m = {id:uid(), labelId:labelId||null, createdAt:Date.now(), updatedAt:Date.now(),
              items:[{id:uid(), text:"", done:false, checkedAt:null, result:""}]};
   state.memos.push(m);
-  save();
+  save({noPush:true});   /* 빈 메모는 클라우드에 올리지 않는다 — 글자가 들어가면 그때 올라감 */
   location.hash = "#/edit/"+m.id;
   render();
   focusItem(0);
@@ -534,6 +569,7 @@ function renderEdit(id){
     <div class="screen editor-screen">
       <div class="memo-meta">
         <span class="when">${fmtDate(memo.createdAt)} 작성</span>
+        <span class="sync-badge" id="editSync"></span>
       </div>
       <div class="chips" id="editorChips"></div>
       <div id="items"></div>
@@ -545,6 +581,7 @@ function renderEdit(id){
   renderEditorChips(memo);
   buildItems(memo);
   adjustBar();
+  renderSyncBadges();
 }
 
 function buildItems(memo){
@@ -634,7 +671,7 @@ function newMemoFromEditor(){
   const m = {id:uid(), labelId:null, createdAt:Date.now(), updatedAt:Date.now(),
              items:[{id:uid(), text:"", done:false, checkedAt:null, result:""}]};
   state.memos.push(m);
-  save();
+  save({noPush:true});
   location.hash = "#/edit/"+m.id;
   render();
   focusItem(0);
@@ -1183,6 +1220,7 @@ function recoverMemo(key, id){
   delete state.deleted.memos[id];      /* 삭제 기록을 지워야 동기화로 다시 사라지지 않음 */
   const copy = JSON.parse(JSON.stringify(src));
   copy.updatedAt = Date.now();         /* 병합에서 이기도록 방금 편집한 것으로 표시 */
+  if(hasBody(copy)) copy.everHadBody = true;
   if(copy.labelId && !state.labels.some(l=>l.id===copy.labelId)) copy.labelId = null;
   const idx = state.memos.findIndex(m=>m.id===id);
   if(idx >= 0) state.memos[idx] = copy; else state.memos.push(copy);
@@ -1296,6 +1334,44 @@ let syncCfg = (function(){
 let syncStatus = syncCfg ? "동기화 확인 중…" : "";
 let pushTimer = null, pushing = false, pendingPush = false;
 
+/* ---------- 미전송 변경 추적 ----------
+   이 기기에서 바뀌었지만 아직 클라우드에 안 올라간 변경이 있는지 기억한다.
+   앱을 껐다 켜도 유지되도록 localStorage에 보관. */
+const DIRTY_KEY = "memo-todo-dirty";
+let dirtySeq = 0, lastPushFailed = false;
+let dirtySince = (function(){ try{ return +localStorage.getItem(DIRTY_KEY) || 0; }catch(e){ return 0; } })();
+function setDirty(on){
+  if(on){
+    if(!dirtySince){
+      dirtySince = Date.now();
+      try{ localStorage.setItem(DIRTY_KEY, String(dirtySince)); }catch(e){}
+    }
+  }else if(dirtySince){
+    dirtySince = 0;
+    try{ localStorage.removeItem(DIRTY_KEY); }catch(e){}
+  }
+  renderSyncBadges();
+}
+function renderSyncBadges(){
+  const eb = document.getElementById("editSync");
+  if(eb){
+    if(!syncCfg || !syncCfg.gistId){ eb.textContent = ""; eb.className = "sync-badge"; }
+    else if(dirtySince){ eb.textContent = "전송 대기"; eb.className = "sync-badge wait"; }
+    else { eb.textContent = "클라우드 저장됨"; eb.className = "sync-badge ok"; }
+  }
+  const hd = document.getElementById("homeDirty");
+  if(hd){
+    const stale = dirtySince && (lastPushFailed || Date.now() - dirtySince > 15000);
+    hd.textContent = (syncCfg && syncCfg.gistId && stale)
+      ? "아직 클라우드에 안 올라간 변경이 있습니다. 인터넷이 연결되면 자동으로 올립니다."
+      : "";
+  }
+}
+/* 클라우드로 보낼 데이터 — 내용이 없는 빈 메모는 보내지 않는다 */
+function payloadJSON(){
+  return JSON.stringify(Object.assign({}, state, {memos: state.memos.filter(hasBody)}));
+}
+
 function saveSyncCfg(){ localStorage.setItem(SYNC_KEY, JSON.stringify(syncCfg)); }
 function setStatus(s){
   syncStatus = s;
@@ -1405,11 +1481,16 @@ function mergeStates(a, b){
                  order:l.order, hidden:!!l.hidden});
   });
 
-  /* 메모: id로 병합, 더 최근에 편집한 쪽 유지 */
+  /* 메모: id로 병합, 더 최근에 편집한 쪽 유지 ('내용이 있었던 메모' 표시는 양쪽 중 하나라도 있으면 유지) */
   const byId = {};
   [].concat(a.memos, b.memos).forEach(m=>{
     const ex = byId[m.id];
-    if(!ex || (m.updatedAt||0) > (ex.updatedAt||0)) byId[m.id] = m;
+    if(!ex || (m.updatedAt||0) > (ex.updatedAt||0)){
+      if(ex && (ex.everHadBody || hasBody(ex))) m.everHadBody = true;
+      byId[m.id] = m;
+    }else if(m.everHadBody || hasBody(m)){
+      ex.everHadBody = true;
+    }
   });
 
   /* 삭제 기록 적용: 삭제 시각이 마지막 편집보다 나중이면 제거,
@@ -1446,7 +1527,7 @@ function sig(s){
   return JSON.stringify({
     l: s.labels.map(x=>x.id+":"+x.name+":"+(x.color||"")+":"+
          (x.order==null?"":x.order)+":"+(x.hidden?1:0)).sort(),
-    m: s.memos.map(x=>JSON.stringify([x.id, x.labelId||null, x.todayAt||0,
+    m: s.memos.filter(hasBody).map(x=>JSON.stringify([x.id, x.labelId||null, x.todayAt||0,
          x.items.map(i=>[i.id, i.text, i.done?1:0, i.checkedAt||0, i.result||""])])).sort(),
     dl: Object.keys(s.deleted.labels).sort().map(k=>k+":"+s.deleted.labels[k]).join(","),
     dm: Object.keys(s.deleted.memos).sort().map(k=>k+":"+s.deleted.memos[k]).join(",")
@@ -1462,7 +1543,7 @@ async function ensureGist(){
   }else{
     const g = await gh("/gists", {method:"POST", body:JSON.stringify({
       description: GIST_DESC, public: false,
-      files: {[GIST_FILE]: {content: JSON.stringify(state)}}
+      files: {[GIST_FILE]: {content: payloadJSON()}}
     })});
     syncCfg.gistId = g.id;
     syncCfg.lastPushAt = Date.now();
@@ -1512,9 +1593,11 @@ async function runDiag(){
   }
   try{
     await gh("/gists/"+syncCfg.gistId, {method:"PATCH",
-      body: JSON.stringify({files:{[GIST_FILE]:{content: JSON.stringify(state)}}})});
+      body: JSON.stringify({files:{[GIST_FILE]:{content: payloadJSON()}}})});
     syncCfg.lastPushAt = Date.now();
     saveSyncCfg();
+    lastPushFailed = false;
+    setDirty(false);
     setStatus("동기화됨 · "+fmtTime(syncCfg.lastPushAt));
     lines.push("5. 업로드 시험: 성공 — 동기화가 정상 동작합니다");
   }catch(e){
@@ -1543,6 +1626,11 @@ async function pullRemote(){
   try{ remote = JSON.parse(text); }catch(e){}
   if(!remote || !Array.isArray(remote.memos) || !Array.isArray(remote.labels)) return;
 
+  /* 클라우드에 있는 빈 메모 껍데기(구버전 기기가 올린 것)는 이 기기에 없으면 받지 않는다 */
+  const localIds = {};
+  state.memos.forEach(m=>{ localIds[m.id] = true; });
+  remote.memos = remote.memos.filter(m=> hasBody(m) || localIds[m.id]);
+
   const merged = mergeStates(state, remote);
   const localChanged  = sig(merged) !== sig(state);
   const remoteChanged = sig(merged) !== sig(remote);
@@ -1554,6 +1642,8 @@ async function pullRemote(){
     state = merged;
     save({noPush:true, keepStamp:true});
     migrateSingle();
+    markBodies();
+    pruneEmptyShells();
     assignColors();
     assignOrder();
     /* 메모를 쓰고 있는 중이면 화면을 다시 그리지 않는다.
@@ -1563,6 +1653,8 @@ async function pullRemote(){
     state = merged;
     save({noPush:true, keepStamp:true});
     migrateSingle();
+    markBodies();
+    pruneEmptyShells();
     assignColors();
     assignOrder();
   }
@@ -1576,6 +1668,8 @@ async function pullRemote(){
 
 function schedulePush(delay){
   if(!syncCfg || !syncCfg.gistId) return;
+  dirtySeq++;
+  setDirty(true);
   clearTimeout(pushTimer);
   pushTimer = setTimeout(doPush, delay==null ? 2500 : delay);
   setStatus("저장됨 · 동기화 대기");
@@ -1585,9 +1679,10 @@ async function doPush(opts){
   if(pushing){ pendingPush = true; return; }
   pushing = true;
   pushTimer = null;
+  const seq = dirtySeq;
   const patch = ()=> gh("/gists/"+syncCfg.gistId, {method:"PATCH",
     keepalive: !!(opts && opts.keepalive),
-    body: JSON.stringify({files:{[GIST_FILE]:{content: JSON.stringify(state)}}})});
+    body: JSON.stringify({files:{[GIST_FILE]:{content: payloadJSON()}}})});
   try{
     setStatus("동기화 중…");
     try{
@@ -1598,19 +1693,45 @@ async function doPush(opts){
     }
     syncCfg.lastPushAt = Date.now();
     saveSyncCfg();
+    lastPushFailed = false;
+    /* 올리는 동안 새 변경이 없었을 때만 '전송 완료'로 표시 */
+    if(dirtySeq === seq) setDirty(false);
     setStatus("동기화됨 · "+fmtTime(syncCfg.lastPushAt));
   }catch(e){
+    lastPushFailed = true;
+    renderSyncBadges();
     setStatus(syncErrShort(e));
   }
   pushing = false;
   if(pendingPush){ pendingPush = false; schedulePush(500); }
 }
+
+/* 앱을 열거나 다시 돌아왔을 때: 클라우드와 합친 다음, 안 올라간 변경이 있으면 바로 올린다.
+   (먼저 올리기부터 하면 파일 전체를 덮어써 다른 기기의 변경을 밀어낼 수 있어서 '합치고 → 즉시 올리기' 순서) */
+let resumeBusy = false, lastResumeAt = 0;
+async function syncOnResume(){
+  if(!syncCfg || !syncCfg.gistId || resumeBusy) return;
+  if(Date.now() - lastResumeAt < 8000) return;
+  resumeBusy = true;
+  lastResumeAt = Date.now();
+  try{
+    await pullRemote();
+    if(dirtySince && !pushing){ clearTimeout(pushTimer); await doPush(); }
+  }catch(e){
+    lastPushFailed = !!dirtySince;
+    renderSyncBadges();
+    setStatus(syncErrShort(e));
+  }
+  resumeBusy = false;
+}
 document.addEventListener("visibilitychange", ()=>{
-  if(document.visibilityState==="hidden" && pushTimer){
-    clearTimeout(pushTimer);
-    doPush({keepalive:true});
+  if(document.visibilityState==="hidden"){
+    if(pushTimer){ clearTimeout(pushTimer); doPush({keepalive:true}); }
+  }else{
+    syncOnResume();
   }
 });
+window.addEventListener("online", ()=>{ lastResumeAt = 0; syncOnResume(); });
 
 /* ---------- 동기화 시트 ---------- */
 function openSyncSheet(){
@@ -1748,13 +1869,13 @@ function migrateSingle(){
 
 save({noPush:true, keepStamp:true});
 migrateSingle();
+markBodies();
+dailySnapshot();          /* 빈 메모 정리 전에 오늘 스냅샷을 먼저 남긴다 */
+pruneEmptyShells();
 assignColors();
 assignOrder();
-dailySnapshot();
 render();
-if(syncCfg && syncCfg.gistId){
-  pullRemote().catch(e=>{ setStatus(syncErrShort(e)); });
-}
+syncOnResume();
 </script>
 </body>
 </html>
