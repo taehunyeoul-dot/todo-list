@@ -320,7 +320,7 @@
    3) 클라우드 동기화: GitHub 비공개 Gist에 자동 백업(수정 이력 포함)
    ================================================================ */
 
-const APP_VERSION = "25";   /* 배포할 때 sw.js의 CACHE 번호와 같이 올린다 */
+const APP_VERSION = "26";   /* 배포할 때 sw.js의 CACHE 번호와 같이 올린다 */
 const KEY = "memo-todo-v2";
 const SNAP = "memo-todo-snap-";
 const SYNC_KEY = "memo-todo-sync";
@@ -547,7 +547,14 @@ function renderHome(){
     </div>`;
   renderSyncBadges();
 }
+/* 메모 화면을 앱 안에서 열었는지 기억 — 삭제 후 되돌아갈 곳을 정할 때 쓴다 */
+let editOpenedInApp = false;
+function openEdit(id){
+  editOpenedInApp = true;
+  location.hash = "#/edit/"+id;
+}
 function startNewMemo(labelId){
+  editOpenedInApp = true;
   const m = {id:uid(), labelId:labelId||null, createdAt:Date.now(), updatedAt:Date.now(),
              items:[{id:uid(), text:"", done:false, checkedAt:null, result:""}]};
   state.memos.push(m);
@@ -682,6 +689,7 @@ function newMemoFromEditor(){
              items:[{id:uid(), text:"", done:false, checkedAt:null, result:""}]};
   state.memos.push(m);
   save({noPush:true});
+  editOpenedInApp = true;
   location.hash = "#/edit/"+m.id;
   render();
   focusItem(0);
@@ -700,12 +708,21 @@ function askDeleteMemo(){
     </div>`);
 }
 function deleteMemo(){
+  const id = currentId;
+  const gone = state.memos.find(m=>m.id===id);
+  const fallback = (gone && isTodayTs(gone.todayAt)) ? "#/today" : "#/find";
   normDeleted(state);
-  state.deleted.memos[currentId] = Date.now();
-  state.memos = state.memos.filter(m=>m.id!==currentId);
+  state.deleted.memos[id] = Date.now();
+  state.memos = state.memos.filter(m=>m.id!==id);
   save();
   closeSheet();
-  location.replace("#/find");
+  if(editOpenedInApp){
+    /* 뒤로 버튼과 똑같이, 메모를 열기 전에 있던 화면(오늘할일·메모찾기·첫 화면)으로 돌아간다 */
+    history.back();
+  }else{
+    /* 앱을 이 메모 화면으로 바로 연 경우 — 뒤로 가면 앱을 벗어나므로 대신 이동 */
+    location.replace(fallback);
+  }
 }
 
 /* ================================================================
@@ -984,7 +1001,7 @@ function todayRowHTML(m){
                              : ` style="border-color:${l.color}"`) : "";
   return `<div class="mrow ${done?"done":""}">
     <button class="dot tap"${dotStyle} onclick="toggleDoneToday('${m.id}')" aria-label="완료"></button>
-    <span class="mrow-body" onclick="location.hash='#/edit/${m.id}'">
+    <span class="mrow-body" onclick="openEdit('${m.id}')">
       <div class="mrow-text">${text}</div>
       <div class="mrow-sub">${sub.join(" · ")}</div>
       ${done && (it.result||"").trim() ? `<div class="mrow-result">${esc(it.result)}</div>` : ""}
@@ -1093,7 +1110,7 @@ function rowHTML(m){
   const todayBtn = done ? "" :
     `<button class="today-btn${isTodayTs(m.todayAt)?" on":""}"
              onclick="event.stopPropagation();toggleToday('${m.id}')">오늘</button>`;
-  return `<div class="mrow ${done?"done":""}" onclick="location.hash='#/edit/${m.id}'">
+  return `<div class="mrow ${done?"done":""}" onclick="openEdit('${m.id}')">
     <span class="dot"${dotStyle}></span>
     <span class="mrow-body">
       <div class="mrow-text">${text}</div>
