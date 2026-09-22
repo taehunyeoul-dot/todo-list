@@ -214,7 +214,7 @@
   .mrow.done .dot.tap::after{left:7px;top:3.5px;width:6px;height:11px;}
   .find-empty{text-align:center;color:var(--sub);font-size:15px;line-height:1.7;padding:60px 20px;}
   .reveal-btn{
-    display:block;margin:14px auto 0;font-size:14px;color:var(--sub);
+    display:block;margin:14px auto 16px;font-size:14px;color:var(--sub);
     padding:9px 18px;border:1px solid var(--line);border-radius:999px;
   }
   .gap{height:18px;}
@@ -320,7 +320,7 @@
    3) 클라우드 동기화: GitHub 비공개 Gist에 자동 백업(수정 이력 포함)
    ================================================================ */
 
-const APP_VERSION = "26";   /* 배포할 때 sw.js의 CACHE 번호와 같이 올린다 */
+const APP_VERSION = "27";   /* 배포할 때 sw.js의 CACHE 번호와 같이 올린다 */
 const KEY = "memo-todo-v2";
 const SNAP = "memo-todo-snap-";
 const SYNC_KEY = "memo-todo-sync";
@@ -1084,14 +1084,16 @@ function renderResults(){
     html += `<div class="find-section">진행 중<span class="n">${open.length}</span></div>`;
     html += `<div class="group">` + open.map(rowHTML).join("") + `</div>`;
   }
-  if(revealDone && done.length){
-    html += `<div class="find-section">완료<span class="n">${done.length}</span></div>`;
-    html += `<div class="group">` + done.map(rowHTML).join("") + `</div>`;
-  }
+  /* 버튼은 진행 중 목록 바로 아래 제자리에 두고, 숨긴 메모는 버튼 아래로 펼친다
+     (다시 가릴 때 목록 맨 아래까지 내려가지 않아도 되게) */
   if(!q && done.length){
     html += `<button class="reveal-btn" onclick="toggleHidden()">${showHidden
       ? "숨긴 메모 가리기"
       : "숨긴 메모 "+done.length+"개 보기"}</button>`;
+  }
+  if(revealDone && done.length){
+    html += `<div class="find-section">완료<span class="n">${done.length}</span></div>`;
+    html += `<div class="group">` + done.map(rowHTML).join("") + `</div>`;
   }
   box.innerHTML = html;
 }
