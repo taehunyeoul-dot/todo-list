@@ -176,6 +176,8 @@
     flex-shrink:0;white-space:nowrap;
   }
   .chip.on{color:var(--accent);border-color:var(--accent);background:var(--accent-soft);font-weight:600;}
+  .chip.hl{opacity:.6;}
+  .chip.toggle{border-style:dashed;}
   .cdot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;flex-shrink:0;}
 
   .find-section{font-size:13px;font-weight:700;color:var(--sub);margin:6px 2px 10px;letter-spacing:.02em;}
@@ -320,7 +322,7 @@
    3) 클라우드 동기화: GitHub 비공개 Gist에 자동 백업(수정 이력 포함)
    ================================================================ */
 
-const APP_VERSION = "27";   /* 배포할 때 sw.js의 CACHE 번호와 같이 올린다 */
+const APP_VERSION = "28";   /* 배포할 때 sw.js의 CACHE 번호와 같이 올린다 */
 const KEY = "memo-todo-v2";
 const SNAP = "memo-todo-snap-";
 const SYNC_KEY = "memo-todo-sync";
@@ -331,6 +333,7 @@ let state = load();
 let searchQ = "";
 let filterLabel = "all";
 let showHidden = false;
+let showHiddenLabels = false;   /* 숨긴 라벨을 칩 줄에 잠시 펼쳐 보기 (저장 안 함) */
 
 /* 라벨 자동 색상 — 밝은/어두운 배경 모두에서 읽히는 8색 */
 const LABEL_COLORS = ["#3B82D6","#199C87","#D08A2B","#9A6AD8","#D2497E","#7BA43B","#D05A50","#5E93B8"];
@@ -734,13 +737,27 @@ function renderEditorChips(memo){
   const none = !memo.labelId || !state.labels.some(l=>l.id===memo.labelId);
   box.innerHTML =
     `<button class="chip${none?" on":""}" onclick="pickEditorLabel(null)">미분류</button>` +
-    sortedLabels().filter(l=> !l.hidden || memo.labelId===l.id).map(l=>{
+    sortedLabels().filter(l=> !l.hidden || showHiddenLabels || memo.labelId===l.id).map(l=>{
       const on = memo.labelId===l.id;
       const st = on ? ` style="color:${l.color};border-color:${l.color};background:${l.color}1A;font-weight:600"` : "";
-      return `<button class="chip${on?" on":""}"${st} onclick="pickEditorLabel('${l.id}')">`+
+      return `<button class="chip${on?" on":""}${l.hidden?" hl":""}"${st} onclick="pickEditorLabel('${l.id}')">`+
              `<span class="cdot" style="background:${l.color}"></span>${esc(l.name)}</button>`;
     }).join("") +
+    hiddenLabelsToggle(memo.labelId) +
     `<button class="chip" onclick="openLabelSheet()">라벨 편집</button>`;
+}
+/* 숨긴 라벨 보기/가리기 칩 — 숨긴 라벨이 있을 때만 (이미 노출 중인 현재 라벨은 제외하고 셈) */
+function hiddenLabelsToggle(activeId){
+  const n = state.labels.filter(l=>l.hidden && l.id!==activeId).length;
+  if(!n) return "";
+  return `<button class="chip toggle" onclick="toggleHiddenLabels()">${showHiddenLabels
+    ? "숨긴 라벨 가리기" : "숨긴 라벨 "+n+"개 보기"}</button>`;
+}
+function toggleHiddenLabels(){
+  showHiddenLabels = !showHiddenLabels;
+  const memo = currentMemo();
+  if(document.getElementById("editorChips") && memo) renderEditorChips(memo);
+  renderChips();
 }
 function pickEditorLabel(id){
   const memo = currentMemo();
@@ -1031,16 +1048,17 @@ function renderChips(){
   const box = document.getElementById("chips");
   if(!box) return;
   /* 숨긴 라벨은 목록에서 제외 (지금 보고 있는 라벨은 예외) */
-  const shown = sortedLabels().filter(l=> !l.hidden || filterLabel===l.id);
+  const shown = sortedLabels().filter(l=> !l.hidden || showHiddenLabels || filterLabel===l.id);
   box.innerHTML =
     `<button class="chip ${filterLabel==="all"?"on":""}" onclick="setFilter('all')">전체</button>` +
     `<button class="chip ${filterLabel==="none"?"on":""}" onclick="setFilter('none')">미분류</button>` +
     shown.map(l=>{
       const on = filterLabel===l.id;
       const st = on ? ` style="color:${l.color};border-color:${l.color};background:${l.color}1A;font-weight:600"` : "";
-      return `<button class="chip${on?" on":""}"${st} onclick="setFilter('${l.id}')">`+
+      return `<button class="chip${on?" on":""}${l.hidden?" hl":""}"${st} onclick="setFilter('${l.id}')">`+
              `<span class="cdot" style="background:${l.color}"></span>${esc(l.name)}</button>`;
     }).join("") +
+    hiddenLabelsToggle(filterLabel) +
     `<button class="chip" onclick="openLabelSheet()">라벨 편집</button>`;
 }
 
